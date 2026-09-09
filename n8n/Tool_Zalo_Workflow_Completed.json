@@ -1,0 +1,625 @@
+{
+  "name": "Tool Zalo - Automation Hoàn Chỉnh",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zalo-scrape",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        -300
+      ],
+      "id": "node-webhook-scrape",
+      "name": "Webhook Cào Nhóm",
+      "webhookId": "b1a2c3d4-zalo-scrape"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body?.inviteLink || '' }}",
+              "rightValue": "http",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -550,
+        -300
+      ],
+      "id": "node-if-link",
+      "name": "Kiểm tra Link hay UID"
+    },
+    {
+      "parameters": {
+        "resource": "zaloGroup",
+        "operation": "getGroupLinkInfo",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "groupLink": "={{ $json.body?.inviteLink || $json.body?.groupId || 'https://zalo.me/g/guxjpb697' }}"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        -420
+      ],
+      "id": "a956bb22-5e60-4441-8c72-1f7be270c316",
+      "name": "Lấy Thông Tin Từ Link Nhóm",
+      "credentials": {
+        "zaloApi": {
+          "id": "wvSmI7K5ksRColBK",
+          "name": "055987xx _ Tg Toán Thầy.. _ 09:31 28/01"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "zaloGroup",
+        "operation": "getGroupMembers",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "groupId": "={{ $json.response?.groupId || $json.body?.groupId || $json.groupId || '5459203984534471449' }}",
+        "scanHiddenMembers": true
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        -50,
+        -300
+      ],
+      "id": "662a9ca2-8420-4c87-8933-b6bde6013cff",
+      "name": "Lấy danh sách thành viên qua UID nhóm",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $('Webhook Cào Nhóm').first().json.body || {};\nlet groupInfo = null;\n\ntry {\n  const linkNode = $('Lấy Thông Tin Từ Link Nhóm');\n  if (linkNode && linkNode.length > 0 && linkNode.first().json.response) {\n    groupInfo = linkNode.first().json.response;\n  }\n} catch (e) {\n  groupInfo = null;\n}\n\nconst membersData = $input.first().json;\n\nif (!groupInfo) {\n  groupInfo = {\n    groupId: webhookData.groupId || membersData.groupId || 'GROUP_' + Date.now(),\n    name: 'Nhóm Zalo ' + (webhookData.groupId || ''),\n    desc: '',\n    creatorId: '',\n    adminIds: [],\n    totalMember: (membersData.memberIds || []).length\n  };\n}\n\nreturn [{\n  json: {\n    success: true,\n    response: groupInfo,\n    memberIds: membersData.memberIds || [],\n    profiles: membersData.profiles || {},\n    callbackUrl: webhookData.callbackUrl || 'http://localhost:3000/api/webhooks/zalo/import'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        -300
+      ],
+      "id": "node-code-prepare-scrape",
+      "name": "Chuẩn Bị Dữ Liệu Cào"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl || 'http://localhost:3000/api/webhooks/zalo/import' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        450,
+        -300
+      ],
+      "id": "node-http-sync-scrape",
+      "name": "Đồng Bộ Về Web App"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zalo-send-campaign",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        150
+      ],
+      "id": "node-webhook-campaign",
+      "name": "Webhook Gửi Tin Tiếp Thị",
+      "webhookId": "c2b3a4d5-zalo-campaign"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst imageUrl = body.message?.imageUrl || '';\nconst videoUrl = body.message?.videoUrl || '';\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaLink) {\n    personalized += '\\n\\n👉 Xem thêm tại: ' + ctaLink;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      imageUrl: imageUrl,\n      videoUrl: videoUrl\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -550,
+        150
+      ],
+      "id": "node-code-prepare-recipients",
+      "name": "Chuẩn Bị Danh Sách Người Nhận"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -300,
+        150
+      ],
+      "id": "node-loop-recipients",
+      "name": "Vòng Lặp Từng Thành Viên"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-friend-1",
+              "leftValue": "={{ $json.autoFriendFirst }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c-friend-2",
+              "leftValue": "={{ $json.isFriend }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -50,
+        150
+      ],
+      "id": "node-if-friend",
+      "name": "Cần Kết Bạn Trước?"
+    },
+    {
+      "parameters": {
+        "operation": "sendFriendRequest",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "userId": "={{ $json.zaloId }}"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        200,
+        50
+      ],
+      "id": "6010948d-5e13-478a-89c0-425101022fa0",
+      "name": "Gửi/Huỷ kết bạn theo User ID",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 3,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        450,
+        50
+      ],
+      "id": "node-wait-friend",
+      "name": "Chờ 3s Sau Kết Bạn",
+      "webhookId": "w-friend-wait-001"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $json.memberIds[0] }}",
+        "message": "={{ $json.personalizedMessage || $json.message || '' }}",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "binary",
+        "attachmentMode": "image",
+        "binaryPropertyName": "data",
+        "fileName": "",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        700,
+        150
+      ],
+      "id": "2b9f7007-89e4-45be-b952-ef3f37e06c51",
+      "name": "Gửi tin nhắn thông qua UID",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.delaySeconds || 15 }}",
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        950,
+        150
+      ],
+      "id": "node-wait-antispam",
+      "name": "Giãn Cách Chống Spam",
+      "webhookId": "w-antispam-wait-001"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        450
+      ],
+      "id": "node-manual-trigger",
+      "name": "Kích Hoạt Thủ Công"
+    },
+    {
+      "parameters": {
+        "resource": "zaloGroup",
+        "operation": "getAllGroups",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "includeGroupInfo": true
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        -550,
+        450
+      ],
+      "id": "7ff63765-39df-4c71-b95b-23b9fb5b2720",
+      "name": "Lấy Tất Cả Nhóm",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAllFriends",
+        "useSession": true,
+        "connectToId": "717682179432150574"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        450
+      ],
+      "id": "0934ac38-1e63-46b2-ab24-9c17cf67f78a",
+      "name": "Lấy danh sách bạn bè",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getSentFriendRequest",
+        "useSession": true,
+        "connectToId": "717682179432150574"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        -50,
+        450
+      ],
+      "id": "5dbbd7d6-8888-403f-a020-2a38bd230538",
+      "name": "Lấy danh sách lời mời đã gửi",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getFriendRequestStatus",
+        "useSession": true,
+        "connectToId": "717682179432150574"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        200,
+        450
+      ],
+      "id": "40967de1-947c-4c4c-856b-24de1c9d8b1b",
+      "name": "Lấy trạng thái lời mời kết bạn",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Cào Nhóm": {
+      "main": [
+        [
+          {
+            "node": "Kiểm tra Link hay UID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm tra Link hay UID": {
+      "main": [
+        [
+          {
+            "node": "Lấy Thông Tin Từ Link Nhóm",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lấy danh sách thành viên qua UID nhóm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lấy Thông Tin Từ Link Nhóm": {
+      "main": [
+        [
+          {
+            "node": "Lấy danh sách thành viên qua UID nhóm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lấy danh sách thành viên qua UID nhóm": {
+      "main": [
+        [
+          {
+            "node": "Chuẩn Bị Dữ Liệu Cào",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chuẩn Bị Dữ Liệu Cào": {
+      "main": [
+        [
+          {
+            "node": "Đồng Bộ Về Web App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Gửi Tin Tiếp Thị": {
+      "main": [
+        [
+          {
+            "node": "Chuẩn Bị Danh Sách Người Nhận",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chuẩn Bị Danh Sách Người Nhận": {
+      "main": [
+        [
+          {
+            "node": "Vòng Lặp Từng Thành Viên",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vòng Lặp Từng Thành Viên": {
+      "main": [
+        [
+          {
+            "node": "Cần Kết Bạn Trước?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cần Kết Bạn Trước?": {
+      "main": [
+        [
+          {
+            "node": "Gửi/Huỷ kết bạn theo User ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gửi tin nhắn thông qua UID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi/Huỷ kết bạn theo User ID": {
+      "main": [
+        [
+          {
+            "node": "Chờ 3s Sau Kết Bạn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chờ 3s Sau Kết Bạn": {
+      "main": [
+        [
+          {
+            "node": "Gửi tin nhắn thông qua UID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi tin nhắn thông qua UID": {
+      "main": [
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Giãn Cách Chống Spam": {
+      "main": [
+        [
+          {
+            "node": "Vòng Lặp Từng Thành Viên",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kích Hoạt Thủ Công": {
+      "main": [
+        [
+          {
+            "node": "Lấy Tất Cả Nhóm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lấy Tất Cả Nhóm": {
+      "main": [
+        [
+          {
+            "node": "Lấy danh sách bạn bè",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lấy danh sách bạn bè": {
+      "main": [
+        [
+          {
+            "node": "Lấy danh sách lời mời đã gửi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lấy danh sách lời mời đã gửi": {
+      "main": [
+        [
+          {
+            "node": "Lấy trạng thái lời mời kết bạn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "9c3db10b-08b7-403f-b1ae-9eaab08b08bb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e2d5da445f84ade5f61733498fc152347799ff33bb8c6ad6a5af4573e424813b"
+  },
+  "id": "Gb4xw1Aafy71T0be",
+  "tags": []
+}

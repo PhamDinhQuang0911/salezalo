@@ -1,0 +1,14 @@
+services:
+  salezalo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salezalo-app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/zalo_manager.db
+    volumes:
+      - ./data:/app/data
