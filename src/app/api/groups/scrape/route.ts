@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getAccountByPhone, getGroupById, getSettings, saveGroup } from "@/lib/firestore-db";
 
 export async function POST(request: Request) {
   try {
-    const db = getDb();
     const body = await request.json();
     const { group_id, invite_link, account_phone } = body;
 
@@ -11,18 +10,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Thiếu group_id hoặc invite_link" }, { status: 400 });
     }
 
-    // Determine scrape webhook: from specified account, from group's assigned account, or global
     let scrapeUrl = "";
-    const effectivePhone = account_phone || (group_id ? (db.prepare("SELECT account_phone FROM groups WHERE group_id = ?").get(group_id) as any)?.account_phone : "");
+    let effectivePhone = account_phone || "";
+
+    if (group_id && !effectivePhone) {
+      const g = await getGroupById(group_id);
+      effectivePhone = g?.account_phone || "";
+    }
 
     if (effectivePhone) {
-      const acc = db.prepare("SELECT scrape_webhook_url FROM accounts WHERE phone = ?").get(effectivePhone) as { scrape_webhook_url: string } | undefined;
+      const acc = await getAccountByPhone(effectivePhone);
       scrapeUrl = acc?.scrape_webhook_url || "";
     }
 
     if (!scrapeUrl) {
-      const webhookSetting = db.prepare("SELECT value FROM settings WHERE key = 'n8n_scrape_webhook'").get() as { value: string } | undefined;
-      scrapeUrl = webhookSetting?.value || "";
+      const settings = await getSettings();
+      scrapeUrl = settings.n8n_scrape_webhook || "";
     }
 
     if (!scrapeUrl || !scrapeUrl.startsWith("http")) {
@@ -51,7 +54,7 @@ export async function POST(request: Request) {
     clearTimeout(timeoutId);
 
     if (group_id) {
-      db.prepare("UPDATE groups SET status = 'scraping' WHERE group_id = ?").run(group_id);
+      await saveGroup(group_id, { status: "scraping" });
     }
 
     return NextResponse.json({

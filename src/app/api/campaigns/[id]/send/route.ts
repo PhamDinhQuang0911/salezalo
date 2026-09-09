@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import {
+  getCampaignById,
+  saveCampaign,
+  getCampaignRecipients,
+  getAccountByPhone,
+  getSettings,
+  updateMember,
+  saveAccount,
+} from "@/lib/firestore-db";
 
 export async function POST(
   request: Request,
@@ -7,10 +15,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const campaignId = parseInt(id);
-
-    const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(campaignId) as any;
+    const campaign = await getCampaignById(id);
     if (!campaign) {
       return NextResponse.json({ success: false, error: "Không tìm thấy chiến dịch" }, { status: 404 });
     }
@@ -18,13 +23,13 @@ export async function POST(
     // Determine target send webhook URL
     let sendWebhookUrl = "";
     if (campaign.account_phone) {
-      const acc = db.prepare("SELECT send_webhook_url FROM accounts WHERE phone = ?").get(campaign.account_phone) as { send_webhook_url: string } | undefined;
+      const acc = await getAccountByPhone(campaign.account_phone);
       sendWebhookUrl = acc?.send_webhook_url || "";
     }
 
     if (!sendWebhookUrl) {
-      const webhookSetting = db.prepare("SELECT value FROM settings WHERE key = 'n8n_send_webhook'").get() as { value: string } | undefined;
-      sendWebhookUrl = webhookSetting?.value || "";
+      const settings = await getSettings();
+      sendWebhookUrl = settings.n8n_send_webhook || "";
     }
 
     if (!sendWebhookUrl || !sendWebhookUrl.startsWith("http")) {
@@ -34,39 +39,8 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Query target recipients with anti-spam filters
-    let whereConditions: string[] = ["m.is_admin = 0"];
-    let queryParams: any[] = [];
-
-    if (campaign.target_group_id) {
-      whereConditions.push("m.zalo_id IN (SELECT member_id FROM group_members WHERE group_id = ?)");
-      queryParams.push(campaign.target_group_id);
-    }
-
-    if (campaign.cooldown_days > 0) {
-      whereConditions.push(`(
-        m.last_campaign_sent_at IS NULL 
-        OR m.last_campaign_sent_at = '' 
-        OR m.last_campaign_sent_at < datetime('now', '-' || ? || ' days', 'localtime')
-      )`);
-      queryParams.push(campaign.cooldown_days);
-    }
-
-    if (!campaign.auto_friend_first) {
-      whereConditions.push("m.block_stranger_msg = 0");
-    }
-
-    const whereClause = "WHERE " + whereConditions.join(" AND ");
-    const limit = campaign.max_recipients || 100;
-    queryParams.push(limit);
-
-    const recipients = db.prepare(`
-      SELECT DISTINCT m.zalo_id, m.display_name, m.avatar, m.phone, m.is_friend, m.block_stranger_msg
-      FROM members m
-      ${whereClause}
-      ORDER BY m.last_campaign_sent_at ASC, m.id ASC
-      LIMIT ?
-    `).all(...queryParams) as any[];
+    // Query target recipients with anti-spam filters from Firestore
+    const recipients = await getCampaignRecipients(campaign);
 
     if (recipients.length === 0) {
       return NextResponse.json({
@@ -92,7 +66,7 @@ export async function POST(
         cooldownDays: campaign.cooldown_days || 10,
       },
       totalRecipients: recipients.length,
-      recipients: recipients.map((r) => ({
+      recipients: recipients.map((r: any) => ({
         zaloId: r.zalo_id,
         name: r.display_name,
         avatar: r.avatar,
@@ -115,41 +89,30 @@ export async function POST(
 
     const n8nText = await resp.text();
 
-    // Update campaign status & timestamp on sent members
-    db.exec("BEGIN TRANSACTION;");
-    try {
-      db.prepare(`
-        UPDATE campaigns SET
-          status = 'sending',
-          sent_count = ?,
-          n8n_response = ?,
-          updated_at = datetime('now', 'localtime')
-        WHERE id = ?
-      `).run(recipients.length, n8nText.slice(0, 500), campaignId);
+    // Update campaign status & timestamp on sent members in Firestore
+    await saveCampaign(id, {
+      status: "sending",
+      sent_count: recipients.length,
+      n8n_response: n8nText.slice(0, 500),
+    });
 
-      const updateMemberStmt = db.prepare(`
-        UPDATE members SET
-          campaign_sent_count = COALESCE(campaign_sent_count, 0) + 1,
-          last_campaign_sent_at = datetime('now', 'localtime')
-        WHERE zalo_id = ?
-      `);
+    for (const r of recipients) {
+      await updateMember(r.zalo_id, {
+        campaign_sent_count: (r.campaign_sent_count || 0) + 1,
+        last_campaign_sent_at: new Date().toISOString(),
+      });
+    }
 
-      for (const r of recipients) {
-        updateMemberStmt.run(r.zalo_id);
+    if (campaign.account_phone) {
+      const acc = await getAccountByPhone(campaign.account_phone);
+      if (acc) {
+        await saveAccount({
+          phone: campaign.account_phone,
+          name: acc.name,
+          scrape_webhook_url: acc.scrape_webhook_url,
+          send_webhook_url: acc.send_webhook_url,
+        });
       }
-
-      if (campaign.account_phone) {
-        db.prepare(`
-          UPDATE accounts SET
-            total_sent_messages = COALESCE(total_sent_messages, 0) + ?,
-            updated_at = datetime('now', 'localtime')
-        `).run(recipients.length);
-      }
-
-      db.exec("COMMIT;");
-    } catch (dbErr) {
-      db.exec("ROLLBACK;");
-      throw dbErr;
     }
 
     return NextResponse.json({

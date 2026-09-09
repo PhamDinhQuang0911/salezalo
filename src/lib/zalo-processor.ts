@@ -1,4 +1,5 @@
-import { getDb } from "./db";
+import { doc, getDoc, writeBatch, arrayUnion } from "firebase/firestore";
+import { firestore, collections } from "./firestore-db";
 
 export interface ZaloGroupInfo {
   groupId: string;
@@ -39,11 +40,9 @@ export interface IngestionResult {
 
 /**
  * Main ingestion function that parses, filters out creator and admins,
- * and saves records into SQLite.
+ * and saves records directly into Google Cloud Firestore.
  */
-export function processZaloData(payload: any): IngestionResult {
-  const db = getDb();
-
+export async function processZaloData(payload: any): Promise<IngestionResult> {
   let groupInfo: ZaloGroupInfo | null = null;
   let memberIds: string[] = [];
   let profiles: Record<string, ZaloMemberProfile> = {};
@@ -110,8 +109,7 @@ export function processZaloData(payload: any): IngestionResult {
     }
   }
 
-  // Fallback if groupInfo not yet found but memberIds exists
-  const groupId = groupInfo?.groupId || "UNKNOWN_GROUP_" + Date.now();
+  const groupId = groupInfo?.groupId || "GROUP_" + Date.now();
   const groupName = groupInfo?.name || "Nhóm Zalo (" + groupId + ")";
   const creatorId = groupInfo?.creatorId || "";
   const adminIds = groupInfo?.adminIds || [];
@@ -120,7 +118,6 @@ export function processZaloData(payload: any): IngestionResult {
   if (creatorId) adminSet.add(creatorId);
   adminIds.forEach((id) => adminSet.add(id));
 
-  // If memberIds array is empty but profiles exist, derive memberIds from profiles keys
   if (memberIds.length === 0 && Object.keys(profiles).length > 0) {
     memberIds = Object.keys(profiles);
   }
@@ -128,127 +125,88 @@ export function processZaloData(payload: any): IngestionResult {
   let regularMembersSaved = 0;
   let adminsExcluded = 0;
 
-  // Run in a single transaction for maximum speed
-  db.exec("BEGIN TRANSACTION;");
-  try {
-    // 1. Upsert group
-    const existingGroup = db.prepare("SELECT group_id FROM groups WHERE group_id = ?").get(groupId);
-    if (existingGroup) {
-      db.prepare(`
-        UPDATE groups SET
-          name = COALESCE(NULLIF(?, ''), name),
-          description = COALESCE(NULLIF(?, ''), description),
-          creator_id = COALESCE(NULLIF(?, ''), creator_id),
-          admin_ids = ?,
-          avatar = COALESCE(NULLIF(?, ''), avatar),
-          full_avatar = COALESCE(NULLIF(?, ''), full_avatar),
-          total_member = CASE WHEN ? > 0 THEN ? ELSE total_member END,
-          status = 'completed',
-          last_scraped_at = datetime('now', 'localtime'),
-          updated_at = datetime('now', 'localtime')
-        WHERE group_id = ?
-      `).run(
-        groupName,
-        groupInfo?.desc || "",
-        creatorId,
-        JSON.stringify(adminIds),
-        groupInfo?.avt || "",
-        groupInfo?.fullAvt || "",
-        groupInfo?.totalMember || 0,
-        groupInfo?.totalMember || 0,
-        groupId
-      );
+  // Process members and prepare batch writes (chunks of 400 to stay safely under Firestore's 500 limit)
+  const BATCH_SIZE = 400;
+  let currentBatch = writeBatch(firestore);
+  let opCount = 0;
+
+  for (const uid of memberIds) {
+    if (!uid) continue;
+
+    const profile = profiles[uid] || {};
+    const isCreator = uid === creatorId;
+    const isAdminRole = adminSet.has(uid);
+    const isAdmin = isCreator || isAdminRole;
+
+    let role: "creator" | "admin" | "member" = "member";
+    if (isCreator) {
+      role = "creator";
+      adminsExcluded++;
+    } else if (isAdminRole) {
+      role = "admin";
+      adminsExcluded++;
     } else {
-      db.prepare(`
-        INSERT INTO groups (
-          group_id, name, description, creator_id, admin_ids,
-          avatar, full_avatar, total_member, status, last_scraped_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', datetime('now', 'localtime'))
-      `).run(
-        groupId,
-        groupName,
-        groupInfo?.desc || "",
-        creatorId,
-        JSON.stringify(adminIds),
-        groupInfo?.avt || "",
-        groupInfo?.fullAvt || "",
-        groupInfo?.totalMember || memberIds.length
-      );
+      regularMembersSaved++;
     }
 
-    // 2. Process members
-    const insertMemberStmt = db.prepare(`
-      INSERT INTO members (
-        zalo_id, display_name, zalo_name, avatar, account_status, global_id, is_admin, role, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-      ON CONFLICT(zalo_id) DO UPDATE SET
-        display_name = COALESCE(NULLIF(excluded.display_name, 'Thành viên Zalo'), members.display_name),
-        zalo_name = COALESCE(NULLIF(excluded.zalo_name, ''), members.zalo_name),
-        avatar = COALESCE(NULLIF(excluded.avatar, ''), members.avatar),
-        account_status = excluded.account_status,
-        global_id = COALESCE(NULLIF(excluded.global_id, ''), members.global_id),
-        is_admin = excluded.is_admin,
-        role = excluded.role,
-        updated_at = datetime('now', 'localtime')
-    `);
+    const displayName = profile.displayName || profile.zaloName || `Thành viên (${uid.slice(-4)})`;
+    const zaloName = profile.zaloName || "";
+    const avatar = profile.avatar || "";
+    const accountStatus = profile.accountStatus || 0;
+    const globalId = profile.globalId || "";
 
-    const insertGroupMemberStmt = db.prepare(`
-      INSERT OR REPLACE INTO group_members (group_id, member_id, role, joined_at)
-      VALUES (?, ?, ?, datetime('now', 'localtime'))
-    `);
+    const memberDocRef = doc(firestore, collections.members, uid);
+    currentBatch.set(
+      memberDocRef,
+      {
+        zalo_id: uid,
+        display_name: displayName,
+        zalo_name: zaloName,
+        avatar: avatar,
+        account_status: accountStatus,
+        global_id: globalId,
+        is_admin: isAdmin ? 1 : 0,
+        role: role,
+        group_ids: arrayUnion(groupId),
+        updated_at: new Date().toISOString(),
+      },
+      { merge: true }
+    );
 
-    for (const uid of memberIds) {
-      if (!uid) continue;
-
-      const profile = profiles[uid] || {};
-      const isCreator = uid === creatorId;
-      const isAdminRole = adminSet.has(uid);
-      const isAdmin = isCreator || isAdminRole;
-
-      let role: "creator" | "admin" | "member" = "member";
-      if (isCreator) {
-        role = "creator";
-        adminsExcluded++;
-      } else if (isAdminRole) {
-        role = "admin";
-        adminsExcluded++;
-      } else {
-        regularMembersSaved++;
-      }
-
-      const displayName = profile.displayName || profile.zaloName || `Thành viên (${uid.slice(-4)})`;
-      const zaloName = profile.zaloName || "";
-      const avatar = profile.avatar || "";
-      const accountStatus = profile.accountStatus || 0;
-      const globalId = profile.globalId || "";
-
-      insertMemberStmt.run(
-        uid,
-        displayName,
-        zaloName,
-        avatar,
-        accountStatus,
-        globalId,
-        isAdmin ? 1 : 0,
-        role
-      );
-
-      insertGroupMemberStmt.run(groupId, uid, role);
+    opCount++;
+    if (opCount >= BATCH_SIZE) {
+      await currentBatch.commit();
+      currentBatch = writeBatch(firestore);
+      opCount = 0;
     }
+  }
 
-    // Update statistics on group
-    db.prepare(`
-      UPDATE groups SET
-        filtered_member_count = (SELECT COUNT(*) FROM group_members WHERE group_id = ? AND role = 'member'),
-        admin_count = (SELECT COUNT(*) FROM group_members WHERE group_id = ? AND role != 'member'),
-        total_member = (SELECT COUNT(*) FROM group_members WHERE group_id = ?)
-      WHERE group_id = ?
-    `).run(groupId, groupId, groupId, groupId);
+  // 2. Save group info
+  const groupDocRef = doc(firestore, collections.groups, groupId);
+  currentBatch.set(
+    groupDocRef,
+    {
+      group_id: groupId,
+      name: groupName,
+      description: groupInfo?.desc || "",
+      creator_id: creatorId,
+      admin_ids: adminIds,
+      avatar: groupInfo?.avt || "",
+      full_avatar: groupInfo?.fullAvt || "",
+      total_member: memberIds.length,
+      filtered_member_count: regularMembersSaved,
+      admin_count: adminsExcluded,
+      status: "completed",
+      last_scraped_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+  opCount++;
 
-    db.exec("COMMIT;");
-  } catch (err) {
-    db.exec("ROLLBACK;");
-    throw err;
+  // Commit any remaining operations
+  if (opCount > 0) {
+    await currentBatch.commit();
   }
 
   return {
@@ -263,6 +221,6 @@ export function processZaloData(payload: any): IngestionResult {
       adminIds,
       regularMemberCount: regularMembersSaved,
     },
-    message: `Đã cào nhóm "${groupName}": Thu được ${regularMembersSaved} thành viên tiềm năng; Lọc bỏ ${adminsExcluded} trưởng/phó nhóm.`,
+    message: `Đã cào nhóm "${groupName}": Thu được ${regularMembersSaved} thành viên tiềm năng; Lọc bỏ ${adminsExcluded} trưởng/phó nhóm trên Firestore.`,
   };
 }

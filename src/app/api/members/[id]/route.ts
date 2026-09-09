@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { updateMember } from "@/lib/firestore-db";
 
 export async function PATCH(
   request: Request,
@@ -8,27 +8,17 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const db = getDb();
 
-    const member = db.prepare("SELECT * FROM members WHERE zalo_id = ? OR id = ?").get(id, id) as any;
-    if (!member) {
-      return NextResponse.json({ success: false, error: "Không tìm thấy thành viên" }, { status: 404 });
+    const updates: any = {};
+    if (typeof body.is_friend !== "undefined") {
+      updates.is_friend = body.is_friend ? 1 : 0;
+    }
+    if (typeof body.block_stranger_msg !== "undefined") {
+      updates.block_stranger_msg = body.block_stranger_msg ? 1 : 0;
     }
 
-    const is_friend = typeof body.is_friend === "number" ? body.is_friend : member.is_friend;
-    const block_stranger_msg = typeof body.block_stranger_msg === "number" ? body.block_stranger_msg : member.block_stranger_msg;
-    const phone = typeof body.phone === "string" ? body.phone : member.phone;
-
-    db.prepare(`
-      UPDATE members SET
-        is_friend = ?,
-        block_stranger_msg = ?,
-        phone = ?,
-        updated_at = datetime('now', 'localtime')
-      WHERE zalo_id = ?
-    `).run(is_friend, block_stranger_msg, phone, member.zalo_id);
-
-    return NextResponse.json({ success: true, message: "Đã cập nhật trạng thái thành viên thành công" });
+    await updateMember(id, updates);
+    return NextResponse.json({ success: true, message: "Cập nhật thành viên trên Firestore thành công" });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
