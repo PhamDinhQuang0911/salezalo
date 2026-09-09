@@ -38,6 +38,25 @@ import {
   Play,
   CheckSquare,
 } from "lucide-react";
+import {
+  clientGetStats,
+  clientGetAccounts,
+  clientSaveAccount,
+  clientDeleteAccount,
+  clientGetGroups,
+  clientSaveGroup,
+  clientDeleteGroup,
+  clientGetMembers,
+  clientUpdateMember,
+  clientGetCampaigns,
+  clientSaveCampaign,
+  clientDeleteCampaign,
+  clientGetSettings,
+  clientUpdateSettings,
+  clientTriggerScrape,
+  clientTriggerSendCampaign,
+  clientImportZaloData,
+} from "@/lib/client-api";
 
 export default function Home() {
   // Tab navigation: "overview" is now on the far left!
@@ -140,11 +159,10 @@ export default function Home() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("/api/stats");
-      const data = await res.json();
+      const data = await clientGetStats();
       if (data.success) {
-        setStats(data.stats);
-        setRecentGroups(data.recentGroups || []);
+        setStats(data.stats as any);
+        setRecentGroups([]);
       }
     } catch (e) {
       console.error(e);
@@ -153,8 +171,7 @@ export default function Home() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch("/api/accounts");
-      const data = await res.json();
+      const data = await clientGetAccounts();
       if (data.success) {
         setAccounts(data.accounts || []);
       }
@@ -165,8 +182,7 @@ export default function Home() {
 
   const fetchGroups = async () => {
     try {
-      const res = await fetch("/api/groups");
-      const data = await res.json();
+      const data = await clientGetGroups();
       if (data.success) {
         setGroups(data.groups || []);
       }
@@ -178,18 +194,16 @@ export default function Home() {
   const fetchMembers = async (page = 1) => {
     setIsLoadingMembers(true);
     try {
-      const params = new URLSearchParams({
-        group_id: selectedGroupId,
+      const data = await clientGetMembers({
+        groupId: selectedGroupId,
         role: memberFilterRole,
-        sent_status: memberFilterSent,
-        friend_status: memberFilterFriend,
-        stranger_block: memberFilterStranger,
+        sentStatus: memberFilterSent,
+        friendStatus: memberFilterFriend,
+        strangerBlock: memberFilterStranger,
         search: memberSearch,
-        page: String(page),
-        limit: "30",
+        page,
+        limit: 30,
       });
-      const res = await fetch(`/api/members?${params.toString()}`);
-      const data = await res.json();
       if (data.success) {
         setMembers(data.members || []);
         setMemberPagination(data.pagination || { total: 0, page: 1, limit: 30, totalPages: 1 });
@@ -203,8 +217,7 @@ export default function Home() {
 
   const fetchCampaigns = async () => {
     try {
-      const res = await fetch("/api/campaigns");
-      const data = await res.json();
+      const data = await clientGetCampaigns();
       if (data.success) {
         setCampaigns(data.campaigns || []);
       }
@@ -215,10 +228,9 @@ export default function Home() {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch("/api/settings");
-      const data = await res.json();
+      const data = await clientGetSettings();
       if (data.success && data.settings) {
-        setSettings(data.settings);
+        setSettings(data.settings as any);
       }
     } catch (e) {
       console.error(e);
@@ -228,12 +240,7 @@ export default function Home() {
   // Toggle member attributes (friend, block stranger)
   const handleToggleMember = async (zaloId: string, patchData: any) => {
     try {
-      const res = await fetch(`/api/members/${zaloId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patchData),
-      });
-      const data = await res.json();
+      const data = await clientUpdateMember(zaloId, patchData);
       if (data.success) {
         setMembers((prev) =>
           prev.map((m) => (m.zalo_id === zaloId ? { ...m, ...patchData } : m))
@@ -251,19 +258,14 @@ export default function Home() {
     setIsAddingAccount(true);
     setAccountNotice("");
     try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newAccount),
-      });
-      const data = await res.json();
+      const data = await clientSaveAccount(newAccount);
       if (data.success) {
         setAccountNotice("Đã thêm tài khoản SĐT Zalo thành công!");
         setNewAccount({ phone: "", name: "", scrape_webhook_url: "", send_webhook_url: "" });
         fetchAccounts();
         fetchStats();
       } else {
-        setAccountNotice("Lỗi: " + data.error);
+        setAccountNotice("Lỗi");
       }
     } catch (err: any) {
       setAccountNotice("Lỗi: " + err.message);
@@ -272,11 +274,10 @@ export default function Home() {
     }
   };
 
-  const handleDeleteAccount = async (id: number) => {
+  const handleDeleteAccount = async (id: any) => {
     if (!confirm("Bạn có chắc chắn muốn xóa tài khoản SĐT này?")) return;
     try {
-      const res = await fetch(`/api/accounts/${id}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await clientDeleteAccount(String(id));
       if (data.success) {
         fetchAccounts();
         fetchStats();
@@ -292,21 +293,18 @@ export default function Home() {
     setIsAddingGroup(true);
     setGroupNotice("");
     try {
-      // Always automatically trigger n8n scrape when clicking "Bắt đầu cào"
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newGroupInput, trigger_scrape: true }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setGroupNotice(data.n8nNotice ? `Đã thêm nhóm & kích hoạt n8n: ${data.n8nNotice}` : "Đã thêm nhóm và bắn lệnh cào sang n8n thành công!");
-        setNewGroupInput({ group_id: "", name: "", invite_link: "", account_phone: "" });
-        fetchGroups();
-        fetchStats();
-      } else {
-        setGroupNotice(`Lỗi: ${data.error}`);
+      await clientSaveGroup(newGroupInput);
+      let scrapeNotice = "";
+      try {
+        const scrapeRes = await clientTriggerScrape(newGroupInput);
+        scrapeNotice = scrapeRes.message;
+      } catch (scrapeErr: any) {
+        scrapeNotice = "Đã lưu nhóm vào Firestore (" + scrapeErr.message + ")";
       }
+      setGroupNotice(scrapeNotice || "Đã thêm nhóm và gọi n8n thành công!");
+      setNewGroupInput({ group_id: "", name: "", invite_link: "", account_phone: "" });
+      fetchGroups();
+      fetchStats();
     } catch (err: any) {
       setGroupNotice(`Lỗi: ${err.message}`);
     } finally {
@@ -316,13 +314,8 @@ export default function Home() {
 
   const handleReScrape = async (groupId: string, inviteLink: string, accountPhone: string) => {
     try {
-      const res = await fetch("/api/groups/scrape", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group_id: groupId, invite_link: inviteLink, account_phone: accountPhone }),
-      });
-      const data = await res.json();
-      alert(data.message || (data.success ? "Đã bắn lệnh cào sang n8n" : data.error));
+      const data = await clientTriggerScrape({ group_id: groupId, invite_link: inviteLink, account_phone: accountPhone });
+      alert(data.message || (data.success ? "Đã bắn lệnh cào sang n8n" : "Lỗi"));
       fetchGroups();
     } catch (err: any) {
       alert("Lỗi: " + err.message);
@@ -332,15 +325,12 @@ export default function Home() {
   const handleDeleteGroup = async (groupId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa nhóm này và các liên kết thành viên?")) return;
     try {
-      const res = await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await clientDeleteGroup(groupId);
       if (data.success) {
         if (selectedGroupId === groupId) setSelectedGroupId("");
         fetchGroups();
         fetchStats();
         fetchMembers(1);
-      } else {
-        alert(data.error);
       }
     } catch (err: any) {
       alert("Lỗi: " + err.message);
@@ -354,12 +344,7 @@ export default function Home() {
     setJsonImportResult(null);
     try {
       const parsed = JSON.parse(rawJsonInput);
-      const res = await fetch("/api/webhooks/zalo/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed),
-      });
-      const data = await res.json();
+      const data = await clientImportZaloData(parsed);
       setJsonImportResult(data);
       if (data.success) {
         fetchStats();
@@ -380,17 +365,9 @@ export default function Home() {
     setCampaignNotice("");
     try {
       const isEditing = editingCampaignId !== null;
-      const url = isEditing ? `/api/campaigns/${editingCampaignId}` : "/api/campaigns";
-      const method = isEditing ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(campaignForm),
-      });
-      const data = await res.json();
+      const data = await clientSaveCampaign(isEditing ? String(editingCampaignId) : null, campaignForm);
       if (data.success) {
-        setCampaignNotice(isEditing ? "Đã cập nhật chiến dịch thành công!" : `Đã tạo chiến dịch thành công! (${data.finalTargetCount} người thỏa mãn)`);
+        setCampaignNotice(isEditing ? "Đã cập nhật chiến dịch thành công!" : "Đã tạo chiến dịch thành công!");
         setEditingCampaignId(null);
         setCampaignForm({
           name: "",
@@ -408,7 +385,7 @@ export default function Home() {
         fetchCampaigns();
         fetchStats();
       } else {
-        setCampaignNotice("Lỗi: " + data.error);
+        setCampaignNotice("Lỗi tạo chiến dịch");
       }
     } catch (err: any) {
       setCampaignNotice("Lỗi: " + err.message);
@@ -452,29 +429,25 @@ export default function Home() {
     });
   };
 
-  const handleDeleteCampaign = async (campaignId: number) => {
+  const handleDeleteCampaign = async (campaignId: any) => {
     if (!confirm("Bạn có chắc chắn muốn xóa chiến dịch này?")) return;
     try {
-      const res = await fetch(`/api/campaigns/${campaignId}`, { method: "DELETE" });
-      const data = await res.json();
+      const data = await clientDeleteCampaign(String(campaignId));
       if (data.success) {
         if (editingCampaignId === campaignId) handleCancelEditCampaign();
         fetchCampaigns();
         fetchStats();
-      } else {
-        alert(data.error);
       }
     } catch (err: any) {
       alert("Lỗi: " + err.message);
     }
   };
 
-  const handleSendCampaign = async (campaignId: number) => {
+  const handleSendCampaign = async (campaignId: any) => {
     if (!confirm("Xác nhận kích hoạt workflow gửi tin nhắn n8n cho chiến dịch này?")) return;
     try {
-      const res = await fetch(`/api/campaigns/${campaignId}/send`, { method: "POST" });
-      const data = await res.json();
-      alert(data.message || (data.success ? "Đã gửi lệnh sang n8n thành công!" : data.error));
+      const data = await clientTriggerSendCampaign(String(campaignId));
+      alert(data.message || (data.success ? "Đã gửi lệnh sang n8n thành công!" : "Lỗi"));
       fetchCampaigns();
       fetchStats();
       fetchMembers(memberPagination.page);
@@ -488,16 +461,9 @@ export default function Home() {
     setIsSavingSettings(true);
     setSettingsNotice("");
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
-      const data = await res.json();
+      const data = await clientUpdateSettings(settings);
       if (data.success) {
         setSettingsNotice("Đã lưu cấu hình thành công!");
-      } else {
-        setSettingsNotice("Lỗi: " + data.error);
       }
     } catch (err: any) {
       setSettingsNotice("Lỗi: " + err.message);
