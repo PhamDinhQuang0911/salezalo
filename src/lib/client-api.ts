@@ -8,6 +8,10 @@ import {
   deleteGroup,
   getMembers,
   updateMember,
+  deleteMember,
+  deleteMembers,
+  deleteMembersByGroup,
+  deleteAllMembers,
   getCampaigns,
   getCampaignById,
   saveCampaign,
@@ -98,6 +102,26 @@ export async function clientGetMembers(filter: any) {
 export async function clientUpdateMember(zaloId: string, updates: any) {
   await updateMember(zaloId, updates);
   return { success: true, message: "Đã cập nhật thành viên" };
+}
+
+export async function clientDeleteMember(zaloId: string) {
+  await deleteMember(zaloId);
+  return { success: true, message: "Đã xóa thành viên" };
+}
+
+export async function clientDeleteMembers(zaloIds: string[]) {
+  await deleteMembers(zaloIds);
+  return { success: true, message: `Đã xóa ${zaloIds.length} thành viên đã chọn` };
+}
+
+export async function clientDeleteMembersByGroup(groupId: string) {
+  const count = await deleteMembersByGroup(groupId);
+  return { success: true, message: `Đã xóa ${count} thành viên trong nhóm này` };
+}
+
+export async function clientDeleteAllMembers() {
+  const count = await deleteAllMembers();
+  return { success: true, message: `Đã xóa toàn bộ ${count} thành viên trong hệ thống` };
 }
 
 export async function clientGetCampaigns() {

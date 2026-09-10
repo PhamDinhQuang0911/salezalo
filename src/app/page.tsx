@@ -49,6 +49,10 @@ import {
   clientDeleteGroup,
   clientGetMembers,
   clientUpdateMember,
+  clientDeleteMember,
+  clientDeleteMembers,
+  clientDeleteMembersByGroup,
+  clientDeleteAllMembers,
   clientGetCampaigns,
   clientSaveCampaign,
   clientDeleteCampaign,
@@ -105,6 +109,8 @@ export default function Home() {
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPagination, setMemberPagination] = useState({ total: 0, page: 1, limit: 30, totalPages: 1 });
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isDeletingMembers, setIsDeletingMembers] = useState(false);
 
   // Campaigns Tab (Create & Edit & Delete)
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -250,6 +256,102 @@ export default function Home() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // 1. Toggle single member selection
+  const handleToggleSelectMember = (zaloId: string) => {
+    setSelectedMemberIds((prev) =>
+      prev.includes(zaloId) ? prev.filter((id) => id !== zaloId) : [...prev, zaloId]
+    );
+  };
+
+  // 2. Toggle select all on current page
+  const handleToggleSelectAllPage = () => {
+    const pageIds = members.map((m) => m.zalo_id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedMemberIds.includes(id));
+    if (allSelected) {
+      setSelectedMemberIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+    } else {
+      setSelectedMemberIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+    }
+  };
+
+  // 3. Delete selected members (Bulk delete)
+  const handleDeleteSelectedMembers = async () => {
+    if (selectedMemberIds.length === 0) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedMemberIds.length} thành viên đã chọn khỏi hệ thống?`)) return;
+    setIsDeletingMembers(true);
+    try {
+      await clientDeleteMembers(selectedMemberIds);
+      const count = selectedMemberIds.length;
+      setSelectedMemberIds([]);
+      fetchMembers(memberPagination.page);
+      fetchStats();
+      fetchGroups();
+      alert(`Đã xóa thành công ${count} thành viên!`);
+    } catch (e: any) {
+      alert("Lỗi xóa thành viên: " + e.message);
+    } finally {
+      setIsDeletingMembers(false);
+    }
+  };
+
+  // 4. Delete single member
+  const handleDeleteSingleMember = async (zaloId: string, name: string) => {
+    if (!confirm(`Xóa thành viên "${name || zaloId}" khỏi hệ thống?`)) return;
+    try {
+      await clientDeleteMember(zaloId);
+      setSelectedMemberIds((prev) => prev.filter((id) => id !== zaloId));
+      fetchMembers(memberPagination.page);
+      fetchStats();
+      fetchGroups();
+    } catch (e: any) {
+      alert("Lỗi xóa: " + e.message);
+    }
+  };
+
+  // 5. Delete all members in selected group
+  const handleDeleteMembersInCurrentGroup = async () => {
+    if (!selectedGroupId) return;
+    const group = groups.find((g) => g.group_id === selectedGroupId);
+    const groupName = group?.name || selectedGroupId;
+    if (!confirm(`CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ thành viên thuộc nhóm "${groupName}" không?`)) return;
+    setIsDeletingMembers(true);
+    try {
+      const res = await clientDeleteMembersByGroup(selectedGroupId);
+      setSelectedMemberIds([]);
+      fetchMembers(1);
+      fetchStats();
+      fetchGroups();
+      alert(res.message);
+    } catch (e: any) {
+      alert("Lỗi: " + e.message);
+    } finally {
+      setIsDeletingMembers(false);
+    }
+  };
+
+  // 6. Delete ALL members across entire system
+  const handleDeleteAllMembers = async () => {
+    if (!confirm("NGUY HIỂM: Bạn có chắc chắn muốn XÓA SẠCH TOÀN BỘ kho thành viên trong hệ thống không?")) return;
+    const secondConfirm = window.prompt('Để xác nhận, vui lòng gõ chữ "XOA" (viết hoa không dấu) vào ô bên dưới:');
+    if (secondConfirm !== "XOA") {
+      alert("Đã hủy thao tác xóa toàn bộ.");
+      return;
+    }
+    setIsDeletingMembers(true);
+    try {
+      const res = await clientDeleteAllMembers();
+      setSelectedMemberIds([]);
+      fetchMembers(1);
+      fetchStats();
+      fetchGroups();
+      alert(res.message);
+    } catch (e: any) {
+      alert("Lỗi: " + e.message);
+    } finally {
+      setIsDeletingMembers(false);
     }
   };
 
@@ -894,7 +996,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                       {selectedGroupObj && (
                         <button
                           onClick={() => handleEditGroup(selectedGroupObj)}
@@ -907,10 +1009,32 @@ export default function Home() {
                       )}
                       {selectedGroupId && (
                         <button
+                          onClick={handleDeleteMembersInCurrentGroup}
+                          disabled={isDeletingMembers}
+                          className="text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 rounded-lg border border-red-500/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title="Xóa toàn bộ thành viên trong nhóm này khỏi hệ thống"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Xóa TV Nhóm</span>
+                        </button>
+                      )}
+                      {selectedGroupId && (
+                        <button
                           onClick={() => setSelectedGroupId("")}
                           className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-750 px-2.5 py-1.5 rounded-lg border border-slate-700 cursor-pointer"
                         >
-                          ✕ Xóa bộ lọc nhóm
+                          ✕ Xóa bộ lọc
+                        </button>
+                      )}
+                      {!selectedGroupId && members.length > 0 && (
+                        <button
+                          onClick={handleDeleteAllMembers}
+                          disabled={isDeletingMembers}
+                          className="text-xs text-rose-400/80 hover:text-rose-300 bg-rose-950/40 hover:bg-rose-900/50 px-2.5 py-1.5 rounded-lg border border-rose-800/40 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title="Xóa sạch toàn bộ kho thành viên trong hệ thống"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Xóa Sạch Kho</span>
                         </button>
                       )}
                     </div>
@@ -1003,6 +1127,32 @@ export default function Home() {
                     </div>
                   </div>
 
+                  {/* Bulk Actions Banner */}
+                  {selectedMemberIds.length > 0 && (
+                    <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
+                      <div className="flex items-center gap-2 text-xs text-red-300 font-medium">
+                        <CheckSquare className="w-4 h-4 text-red-400" />
+                        <span>Đã chọn: <strong className="text-white">{selectedMemberIds.length}</strong> thành viên</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedMemberIds([])}
+                          className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer"
+                        >
+                          Bỏ chọn
+                        </button>
+                        <button
+                          onClick={handleDeleteSelectedMembers}
+                          disabled={isDeletingMembers}
+                          className="text-xs bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm shadow-red-600/30 cursor-pointer disabled:opacity-50 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Xóa {selectedMemberIds.length} thành viên đã chọn</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {isLoadingMembers ? (
                     <div className="p-12 text-center">
                       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
@@ -1017,17 +1167,37 @@ export default function Home() {
                       <table className="w-full text-left text-xs">
                         <thead className="bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
                           <tr>
+                            <th className="py-3 px-3 w-10 text-center">
+                              <input
+                                type="checkbox"
+                                checked={members.length > 0 && members.every((m) => selectedMemberIds.includes(m.zalo_id))}
+                                onChange={handleToggleSelectAllPage}
+                                className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 cursor-pointer"
+                                title="Chọn tất cả thành viên trên trang này"
+                              />
+                            </th>
                             <th className="py-3 px-4">Thành viên Zalo</th>
                             <th className="py-3 px-4">Zalo UID</th>
                             <th className="py-3 px-4 text-center">Trạng Thái (Icons)</th>
                             <th className="py-3 px-4">Thuộc nhóm</th>
                             <th className="py-3 px-4">Gửi tin gần nhất</th>
-                            <th className="py-3 px-4 text-right">Sao chép</th>
+                            <th className="py-3 px-4 text-right">Thao tác</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
                           {members.map((m) => (
-                            <tr key={m.zalo_id} className="hover:bg-slate-800/30 transition">
+                            <tr
+                              key={m.zalo_id}
+                              className={`transition ${selectedMemberIds.includes(m.zalo_id) ? "bg-red-500/5 hover:bg-red-500/10" : "hover:bg-slate-800/30"}`}
+                            >
+                              <td className="py-3 px-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedMemberIds.includes(m.zalo_id)}
+                                  onChange={() => handleToggleSelectMember(m.zalo_id)}
+                                  className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 cursor-pointer"
+                                />
+                              </td>
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-3">
                                   <img
@@ -1106,13 +1276,23 @@ export default function Home() {
                               </td>
 
                               <td className="py-3 px-4 text-right">
-                                <button
-                                  onClick={() => copyToClipboard(m.zalo_id)}
-                                  className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-750 px-2 py-1 rounded border border-slate-700 transition cursor-pointer inline-flex items-center gap-1 text-[11px]"
-                                >
-                                  {copiedUid === m.zalo_id ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                                  <span>UID</span>
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => copyToClipboard(m.zalo_id)}
+                                    className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-750 px-2 py-1 rounded border border-slate-700 transition cursor-pointer inline-flex items-center gap-1 text-[11px]"
+                                    title="Sao chép UID"
+                                  >
+                                    {copiedUid === m.zalo_id ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                    <span>UID</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteSingleMember(m.zalo_id, m.display_name)}
+                                    className="text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-slate-750 p-1.5 rounded border border-slate-700 transition cursor-pointer"
+                                    title="Xóa thành viên này"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}

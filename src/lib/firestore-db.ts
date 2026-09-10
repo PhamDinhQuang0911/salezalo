@@ -193,6 +193,54 @@ export async function updateMember(zaloId: string, updates: any) {
   return true;
 }
 
+export async function deleteMember(zaloId: string) {
+  const docRef = doc(firestore, collections.members, String(zaloId));
+  await deleteDoc(docRef);
+  return true;
+}
+
+export async function deleteMembers(zaloIds: string[]) {
+  const CHUNK_SIZE = 450;
+  for (let i = 0; i < zaloIds.length; i += CHUNK_SIZE) {
+    const chunk = zaloIds.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(firestore);
+    for (const id of chunk) {
+      batch.delete(doc(firestore, collections.members, String(id)));
+    }
+    await batch.commit();
+  }
+  return true;
+}
+
+export async function deleteMembersByGroup(groupId: string) {
+  const membersCol = collection(firestore, collections.members);
+  const snap = await getDocs(membersCol);
+  const toDeleteIds: string[] = [];
+  snap.docs.forEach((d) => {
+    const data = d.data();
+    if (
+      (Array.isArray(data.group_ids) && data.group_ids.includes(groupId)) ||
+      data.group_id === groupId
+    ) {
+      toDeleteIds.push(d.id);
+    }
+  });
+  if (toDeleteIds.length > 0) {
+    await deleteMembers(toDeleteIds);
+  }
+  return toDeleteIds.length;
+}
+
+export async function deleteAllMembers() {
+  const membersCol = collection(firestore, collections.members);
+  const snap = await getDocs(membersCol);
+  const allIds = snap.docs.map((d) => d.id);
+  if (allIds.length > 0) {
+    await deleteMembers(allIds);
+  }
+  return allIds.length;
+}
+
 // ================= CAMPAIGNS =================
 export async function getCampaigns() {
   const snap = await getDocs(collection(firestore, collections.campaigns));
