@@ -305,6 +305,7 @@ export default function Home() {
       setNewGroupInput({ group_id: "", name: "", invite_link: "", account_phone: "" });
       fetchGroups();
       fetchStats();
+      fetchMembers();
     } catch (err: any) {
       setGroupNotice(`Lỗi: ${err.message}`);
     } finally {

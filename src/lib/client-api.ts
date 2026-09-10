@@ -168,21 +168,43 @@ export async function clientTriggerScrape(data: {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes for large groups
 
-  const resp = await fetch(scrapeUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      groupId: data.group_id || "",
-      inviteLink: data.invite_link || "",
-      accountPhone: effectivePhone || "",
-      action: "scrape_group",
-      timestamp: new Date().toISOString(),
-    }),
-    signal: controller.signal,
-  });
-  clearTimeout(timeoutId);
+  let resp: Response;
+  try {
+    resp = await fetch(scrapeUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        groupId: data.group_id || "",
+        inviteLink: data.invite_link || "",
+        accountPhone: effectivePhone || "",
+        action: "scrape_group",
+        timestamp: new Date().toISOString(),
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  let responseData: any = null;
+  try {
+    responseData = await resp.json();
+  } catch (e) {
+    responseData = null;
+  }
+
+  // If n8n responded with the scraped group/member dataset directly (via Respond to Webhook or When Last Node Finishes)
+  if (responseData && (responseData.memberIds || responseData.response || (Array.isArray(responseData) && responseData.length > 0))) {
+    const importResult = await processZaloData(responseData);
+    return {
+      success: true,
+      message: `Đã cào và lưu thành công ${importResult.savedMembers} thành viên vào Firebase Firestore (loại bỏ ${importResult.excludedAdmins} Trưởng/Phó nhóm)!`,
+      importResult,
+      n8nStatus: resp.status,
+    };
+  }
 
   if (data.group_id) {
     await saveGroup(data.group_id, { status: "scraping" });
