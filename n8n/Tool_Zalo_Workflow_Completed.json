@@ -257,8 +257,8 @@
         "noticeUserId": "",
         "noticeUserIdSupport": "",
         "threadType": 0,
-        "threadId": "={{ $json.zaloId || $json.memberIds[0] }}",
-        "message": "={{ $json.personalizedMessage || $json.message || '' }}",
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || $json.memberIds?.[0] || '' }}",
+        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || $json.message || '' }}",
         "messageFormat": "plain",
         "urgency": 0,
         "sendTypingEvent": true,
@@ -289,7 +289,7 @@
     },
     {
       "parameters": {
-        "amount": "={{ $json.delaySeconds || 15 }}",
+        "amount": "={{ $json.delaySeconds || $('Vòng Lặp Từng Thành Viên').item.json.delaySeconds || 15 }}",
         "unit": "seconds"
       },
       "type": "n8n-nodes-base.wait",
@@ -488,6 +488,7 @@
     },
     "Vòng Lặp Từng Thành Viên": {
       "main": [
+        [],
         [
           {
             "node": "Cần Kết Bạn Trước?",
