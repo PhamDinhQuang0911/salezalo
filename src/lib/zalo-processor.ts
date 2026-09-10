@@ -52,16 +52,18 @@ export async function processZaloData(payload: any): Promise<IngestionResult> {
     for (const item of payload) {
       if (!item) continue;
       // Check for group response format
-      if (item.response && (item.response.groupId || item.response.name)) {
+      if (item.response) {
+        const resp = item.response;
+        const avt = resp.avatar || resp.avt || resp.fullAvt || resp.groupAvatar || resp.picture || "";
         groupInfo = {
-          groupId: String(item.response.groupId || ""),
-          name: String(item.response.name || "Nhóm Zalo không tên"),
-          desc: String(item.response.desc || ""),
-          creatorId: item.response.creatorId ? String(item.response.creatorId) : "",
-          adminIds: Array.isArray(item.response.adminIds) ? item.response.adminIds.map(String) : [],
-          avt: item.response.avt || "",
-          fullAvt: item.response.fullAvt || "",
-          totalMember: Number(item.response.totalMember || 0),
+          groupId: String(resp.groupId || resp.grid || resp.id || ""),
+          name: String(resp.name || resp.groupName || resp.title || "Nhóm Zalo"),
+          desc: String(resp.desc || resp.description || ""),
+          creatorId: resp.creatorId ? String(resp.creatorId) : "",
+          adminIds: Array.isArray(resp.adminIds) ? resp.adminIds.map(String) : [],
+          avt: avt,
+          fullAvt: avt,
+          totalMember: Number(resp.totalMember || 0),
         };
       }
       // Check for members & profiles format
@@ -77,25 +79,28 @@ export async function processZaloData(payload: any): Promise<IngestionResult> {
   } else if (typeof payload === "object" && payload !== null) {
     // Case B: Unified object
     if (payload.response) {
+      const resp = payload.response;
+      const avt = resp.avatar || resp.avt || resp.fullAvt || resp.groupAvatar || resp.picture || "";
       groupInfo = {
-        groupId: String(payload.response.groupId || ""),
-        name: String(payload.response.name || "Nhóm Zalo"),
-        desc: String(payload.response.desc || ""),
-        creatorId: payload.response.creatorId ? String(payload.response.creatorId) : "",
-        adminIds: Array.isArray(payload.response.adminIds) ? payload.response.adminIds.map(String) : [],
-        avt: payload.response.avt || "",
-        fullAvt: payload.response.fullAvt || "",
-        totalMember: Number(payload.response.totalMember || 0),
+        groupId: String(resp.groupId || resp.grid || resp.id || ""),
+        name: String(resp.name || resp.groupName || resp.title || "Nhóm Zalo"),
+        desc: String(resp.desc || resp.description || ""),
+        creatorId: resp.creatorId ? String(resp.creatorId) : "",
+        adminIds: Array.isArray(resp.adminIds) ? resp.adminIds.map(String) : [],
+        avt: avt,
+        fullAvt: avt,
+        totalMember: Number(resp.totalMember || 0),
       };
-    } else if (payload.groupId) {
+    } else if (payload.groupId || payload.grid || payload.name) {
+      const avt = payload.avatar || payload.avt || payload.fullAvt || payload.groupAvatar || payload.picture || "";
       groupInfo = {
-        groupId: String(payload.groupId),
-        name: String(payload.name || "Nhóm Zalo"),
-        desc: String(payload.desc || ""),
+        groupId: String(payload.groupId || payload.grid || payload.id || "GROUP_" + Date.now()),
+        name: String(payload.name || payload.groupName || payload.title || "Nhóm Zalo"),
+        desc: String(payload.desc || payload.description || ""),
         creatorId: payload.creatorId ? String(payload.creatorId) : "",
         adminIds: Array.isArray(payload.adminIds) ? payload.adminIds.map(String) : [],
-        avt: payload.avt || payload.avatar || "",
-        fullAvt: payload.fullAvt || "",
+        avt: avt,
+        fullAvt: avt,
         totalMember: Number(payload.totalMember || 0),
         invite_link: payload.invite_link || "",
       };
@@ -168,6 +173,7 @@ export async function processZaloData(payload: any): Promise<IngestionResult> {
         is_admin: isAdmin ? 1 : 0,
         role: role,
         group_ids: arrayUnion(groupId),
+        groups_list: groupName,
         updated_at: new Date().toISOString(),
       },
       { merge: true }

@@ -45,6 +45,7 @@ import {
   clientDeleteAccount,
   clientGetGroups,
   clientSaveGroup,
+  clientUpdateGroup,
   clientDeleteGroup,
   clientGetMembers,
   clientUpdateMember,
@@ -293,13 +294,18 @@ export default function Home() {
     setIsAddingGroup(true);
     setGroupNotice("");
     try {
-      await clientSaveGroup(newGroupInput);
+      if (newGroupInput.group_id || newGroupInput.name) {
+        await clientSaveGroup(newGroupInput);
+      }
       let scrapeNotice = "";
       try {
         const scrapeRes = await clientTriggerScrape(newGroupInput);
         scrapeNotice = scrapeRes.message;
       } catch (scrapeErr: any) {
-        scrapeNotice = "Đã lưu nhóm vào Firestore (" + scrapeErr.message + ")";
+        if (!newGroupInput.group_id && !newGroupInput.name) {
+          await clientSaveGroup(newGroupInput);
+        }
+        scrapeNotice = "Đã gửi lệnh cào (" + scrapeErr.message + ")";
       }
       setGroupNotice(scrapeNotice || "Đã thêm nhóm và gọi n8n thành công!");
       setNewGroupInput({ group_id: "", name: "", invite_link: "", account_phone: "" });
@@ -320,6 +326,23 @@ export default function Home() {
       fetchGroups();
     } catch (err: any) {
       alert("Lỗi: " + err.message);
+    }
+  };
+
+  const handleEditGroup = async (group: any) => {
+    const newName = window.prompt("Nhập tên nhóm hiển thị mới:", group.name || "");
+    if (newName === null) return;
+    const newAvatar = window.prompt("Nhập URL ảnh đại diện (Avatar link) của nhóm (để trống nếu giữ nguyên):", group.avatar || "");
+    try {
+      await clientUpdateGroup(group.group_id, {
+        name: newName.trim() || group.name,
+        avatar: newAvatar !== null ? newAvatar.trim() : group.avatar,
+      });
+      fetchGroups();
+      fetchStats();
+      fetchMembers();
+    } catch (err: any) {
+      alert("Lỗi cập nhật nhóm: " + err.message);
     }
   };
 
@@ -848,28 +871,49 @@ export default function Home() {
                 {/* Header & Filter Controls for Members */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800/80">
-                    <div>
-                      <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                        <span>Đang xem thành viên:</span>
-                        <span className="text-blue-400">
-                          {selectedGroupObj ? selectedGroupObj.name : "Toàn Bộ Các Nhóm"}
-                        </span>
-                      </h3>
-                      <p className="text-xs text-slate-400">
-                        {selectedGroupObj
-                          ? `Nhóm UID: ${selectedGroupObj.group_id} • Có ${selectedGroupObj.filtered_member_count} thành viên sạch (${selectedGroupObj.admin_count} Trưởng/Phó nhóm đã bị lọc)`
-                          : `Tổng số ${stats.targetMembers} thành viên sạch trên toàn bộ hệ thống`}
-                      </p>
+                    <div className="flex items-center gap-3 min-w-0">
+                      {selectedGroupObj?.avatar && (
+                        <img
+                          src={selectedGroupObj.avatar}
+                          alt=""
+                          className="w-10 h-10 rounded-xl object-cover border border-slate-700 shrink-0"
+                        />
+                      )}
+                      <div>
+                        <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                          <span>Đang xem thành viên:</span>
+                          <span className="text-blue-400 truncate">
+                            {selectedGroupObj ? selectedGroupObj.name : "Toàn Bộ Các Nhóm"}
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          {selectedGroupObj
+                            ? `Nhóm UID: ${selectedGroupObj.group_id} • Có ${selectedGroupObj.filtered_member_count} thành viên sạch (${selectedGroupObj.admin_count} Trưởng/Phó nhóm đã bị lọc)`
+                            : `Tổng số ${stats.targetMembers} thành viên sạch trên toàn bộ hệ thống`}
+                        </p>
+                      </div>
                     </div>
 
-                    {selectedGroupId && (
-                      <button
-                        onClick={() => setSelectedGroupId("")}
-                        className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-750 px-2.5 py-1.5 rounded-lg border border-slate-700 self-start sm:self-auto cursor-pointer"
-                      >
-                        ✕ Xóa bộ lọc nhóm
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      {selectedGroupObj && (
+                        <button
+                          onClick={() => handleEditGroup(selectedGroupObj)}
+                          className="text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg border border-amber-500/30 flex items-center gap-1.5 cursor-pointer"
+                          title="Đổi tên và ảnh đại diện nhóm"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                          <span>Đổi tên & Avatar</span>
+                        </button>
+                      )}
+                      {selectedGroupId && (
+                        <button
+                          onClick={() => setSelectedGroupId("")}
+                          className="text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-750 px-2.5 py-1.5 rounded-lg border border-slate-700 cursor-pointer"
+                        >
+                          ✕ Xóa bộ lọc nhóm
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Filter Selectors */}
@@ -1045,9 +1089,17 @@ export default function Home() {
                                 </div>
                               </td>
 
-                              <td className="py-3 px-4 text-slate-300 max-w-[160px] truncate" title={m.groups_list}>
-                                {m.groups_list || "Chưa gán"}
-                              </td>
+                              {(() => {
+                                const matched = groups.find((g) => (m.group_ids || []).includes(g.group_id));
+                                const displayGroup = (m.groups_list && !m.groups_list.startsWith("GROUP_")) ? m.groups_list : (matched?.name || m.groups_list || "Chưa gán");
+                                return (
+                                  <td className="py-3 px-4 text-slate-300 max-w-[160px] truncate" title={displayGroup}>
+                                    <span className="px-2 py-0.5 rounded-md bg-slate-800/80 text-[11px] border border-slate-700/60 text-slate-200">
+                                      {displayGroup}
+                                    </span>
+                                  </td>
+                                );
+                              })()}
 
                               <td className="py-3 px-4 text-slate-400 text-[11px]">
                                 {m.last_campaign_sent_at || "Chưa gửi"}
@@ -1422,6 +1474,13 @@ export default function Home() {
                                 className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700 cursor-pointer"
                               >
                                 Xem thành viên
+                              </button>
+                              <button
+                                onClick={() => handleEditGroup(g)}
+                                className="p-1 text-slate-400 hover:text-amber-400 bg-slate-800 rounded-lg cursor-pointer"
+                                title="Đổi tên và ảnh đại diện nhóm"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => handleReScrape(g.group_id, g.invite_link, g.account_phone)}

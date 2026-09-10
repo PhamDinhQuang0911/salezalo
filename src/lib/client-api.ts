@@ -71,6 +71,11 @@ export async function clientSaveGroup(data: {
   return { success: true, group };
 }
 
+export async function clientUpdateGroup(groupId: string, data: { name?: string; avatar?: string; description?: string }) {
+  const group = await saveGroup(groupId, data);
+  return { success: true, group };
+}
+
 export async function clientDeleteGroup(groupId: string) {
   await deleteGroup(groupId);
   return { success: true, message: "Đã xóa nhóm" };
@@ -147,6 +152,7 @@ export async function clientUpdateSettings(data: Record<string, string>) {
 
 export async function clientTriggerScrape(data: {
   group_id?: string;
+  name?: string;
   invite_link?: string;
   account_phone?: string;
 }) {
@@ -177,6 +183,8 @@ export async function clientTriggerScrape(data: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         groupId: data.group_id || "",
+        name: data.name || "",
+        groupName: data.name || "",
         inviteLink: data.invite_link || "",
         accountPhone: effectivePhone || "",
         action: "scrape_group",
