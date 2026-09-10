@@ -141,8 +141,8 @@ export async function clientSaveCampaign(id: string | null, data: any) {
     target_group_id: data.target_group_id || "",
     account_phone: data.account_phone || "",
     target_count: total,
-    max_recipients: parseInt(data.max_recipients) || 100,
-    cooldown_days: parseInt(data.cooldown_days) || 10,
+    max_recipients: data.max_recipients !== undefined && !isNaN(parseInt(data.max_recipients)) ? parseInt(data.max_recipients) : 100,
+    cooldown_days: data.cooldown_days !== undefined && !isNaN(parseInt(data.cooldown_days)) ? parseInt(data.cooldown_days) : 10,
     auto_friend_first: data.auto_friend_first ? 1 : 0,
     delay_seconds: parseInt(data.delay_seconds) || 15,
     image_url: data.image_url?.trim() || "",
@@ -272,7 +272,11 @@ export async function clientTriggerSendCampaign(campaignId: string) {
 
   const recipients = await getCampaignRecipients(campaign);
   if (recipients.length === 0) {
-    throw new Error("Không có thành viên nào thỏa mãn tiêu chuẩn chống spam để gửi tin đợt này.");
+    throw new Error(
+      `Không có thành viên nào thỏa mãn tiêu chuẩn chống spam để gửi tin đợt này. ` +
+      `Các thành viên đều đã được gửi tin trong vòng ${campaign.cooldown_days || 10} ngày qua. ` +
+      `👉 Để gửi lại ngay cho những người này: Hãy bấm nút 'Sửa' chiến dịch và chỉnh ô 'Loại trừ người đã gửi trong (ngày)' thành 0 rồi lưu lại!`
+    );
   }
 
   const payload = {

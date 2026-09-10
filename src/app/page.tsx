@@ -528,7 +528,7 @@ export default function Home() {
       target_group_id: c.target_group_id || "all",
       account_phone: c.account_phone || "",
       max_recipients: c.max_recipients || 100,
-      cooldown_days: c.cooldown_days || 10,
+      cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 10,
       auto_friend_first: c.auto_friend_first || 0,
       delay_seconds: c.delay_seconds || 15,
       image_url: c.image_url || "",
@@ -1978,7 +1978,7 @@ export default function Home() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                          <span>Loại trừ: {c.cooldown_days || 10} ngày qua</span>
+                          <span>Loại trừ: {c.cooldown_days !== undefined ? c.cooldown_days : 10} ngày qua</span>
                           <span>• Giới hạn: tối đa {c.max_recipients || 100} người</span>
                           <span>• Delay: {c.delay_seconds || 15}s</span>
                           {Boolean(c.auto_friend_first) && <span className="text-blue-400 font-medium">• Tự kết bạn trước</span>}
