@@ -504,9 +504,9 @@ export default function Home() {
 
           <div className="flex items-center gap-2.5">
             <div className="hidden lg:flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 px-3 py-1.5 rounded-xl text-xs text-slate-300">
-              <Database className="w-3.5 h-3.5 text-emerald-400" />
-              <span>SQLite Local:</span>
-              <span className="font-mono text-emerald-400 font-medium">data/zalo_manager.db</span>
+              <Database className="w-3.5 h-3.5 text-amber-400" />
+              <span>Firebase Firestore:</span>
+              <span className="font-mono text-amber-400 font-medium">zalosale2 (Cloud 1GB Free)</span>
             </div>
 
             <button
@@ -664,7 +664,7 @@ export default function Home() {
                   <span className="text-3xl font-bold text-white">{stats.totalGroups || 0}</span>
                   <span className="text-xs text-slate-400">nhóm</span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Lưu trữ trong SQLite cục bộ</p>
+                <p className="text-xs text-slate-500 mt-1">Lưu trữ trên Cloud Firestore</p>
               </div>
             </div>
 
@@ -1790,11 +1790,11 @@ export default function Home() {
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
               <h3 className="font-semibold text-sm text-white mb-2 flex items-center gap-2">
-                <Database className="w-4 h-4 text-emerald-400" />
-                Vị Trí Lưu Trữ Database
+                <Database className="w-4 h-4 text-amber-400" />
+                Cơ Sở Dữ Liệu Cloud Firestore
               </h3>
-              <div className="mt-2 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-emerald-400">
-                C:\Users\ADMIN\.gemini\antigravity\scratch\zalo-member-manager\data\zalo_manager.db
+              <div className="mt-2 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-amber-400">
+                Google Cloud Firestore Project: zalosale2 (Gói miễn phí 1GB, lưu trữ đám mây thời gian thực)
               </div>
             </div>
 
@@ -1873,7 +1873,7 @@ export default function Home() {
 
             <div className="p-4 space-y-3 flex-1 overflow-y-auto">
               <p className="text-xs text-slate-300">
-                Dán mảng JSON cào được từ n8n (gồm Group Info + mảng memberIds + profiles). Hệ thống sẽ tự động bóc tách, cách ly Trưởng/Phó nhóm và lưu vào SQLite:
+                Dán mảng JSON cào được từ n8n (gồm Group Info + mảng memberIds + profiles). Hệ thống sẽ tự động bóc tách, cách ly Trưởng/Phó nhóm và lưu trực tiếp vào Cloud Firestore:
               </p>
 
               <textarea
