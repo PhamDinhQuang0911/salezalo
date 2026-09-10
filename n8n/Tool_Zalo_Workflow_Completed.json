@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "zalo-scrape",
-        "responseMode": "onReceived",
+        "responseMode": "responseNode",
         "options": {}
       },
       "type": "n8n-nodes-base.webhook",
@@ -100,7 +100,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const webhookData = $('Webhook Cào Nhóm').first().json.body || {};\nlet groupInfo = null;\n\ntry {\n  const linkNode = $('Lấy Thông Tin Từ Link Nhóm');\n  if (linkNode && linkNode.length > 0 && linkNode.first().json.response) {\n    groupInfo = linkNode.first().json.response;\n  }\n} catch (e) {\n  groupInfo = null;\n}\n\nconst membersData = $input.first().json;\n\nif (!groupInfo) {\n  groupInfo = {\n    groupId: webhookData.groupId || membersData.groupId || 'GROUP_' + Date.now(),\n    name: 'Nhóm Zalo ' + (webhookData.groupId || ''),\n    desc: '',\n    creatorId: '',\n    adminIds: [],\n    totalMember: (membersData.memberIds || []).length\n  };\n}\n\nreturn [{\n  json: {\n    success: true,\n    response: groupInfo,\n    memberIds: membersData.memberIds || [],\n    profiles: membersData.profiles || {},\n    callbackUrl: webhookData.callbackUrl || 'http://localhost:3000/api/webhooks/zalo/import'\n  }\n}];"
+        "jsCode": "const webhookData = $('Webhook Cào Nhóm').first().json.body || {};\nlet groupInfo = null;\n\ntry {\n  const linkNode = $('Lấy Thông Tin Từ Link Nhóm');\n  if (linkNode && linkNode.length > 0) {\n    const item = linkNode.first().json;\n    groupInfo = item.response || (item.groupId ? item : null) || item.data || null;\n  }\n} catch (e) {\n  groupInfo = null;\n}\n\nconst membersData = $input.first().json;\n\nif (!groupInfo) {\n  groupInfo = {\n    groupId: webhookData.groupId || membersData.groupId || 'GROUP_' + Date.now(),\n    name: webhookData.groupName || 'Nhóm Zalo ' + (webhookData.groupId || ''),\n    desc: '',\n    creatorId: membersData.creatorId || '',\n    adminIds: membersData.adminIds || [],\n    totalMember: (membersData.memberIds || []).length\n  };\n} else if (!groupInfo.totalMember && membersData.memberIds) {\n  groupInfo.totalMember = membersData.memberIds.length;\n}\n\nreturn [{\n  json: {\n    success: true,\n    response: groupInfo,\n    memberIds: membersData.memberIds || [],\n    profiles: membersData.profiles || {}\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -113,23 +113,17 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $json.callbackUrl || 'http://localhost:3000/api/webhooks/zalo/import' }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": {
-          "timeout": 30000
-        }
+        "respondWith": "firstIncomingItem",
+        "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
       "position": [
         450,
         -300
       ],
-      "id": "node-http-sync-scrape",
-      "name": "Đồng Bộ Về Web App"
+      "id": "node-respond-to-webhook-scrape",
+      "name": "Trả Kết Quả Cào Về Web App"
     },
     {
       "parameters": {
@@ -463,7 +457,7 @@
       "main": [
         [
           {
-            "node": "Đồng Bộ Về Web App",
+            "node": "Trả Kết Quả Cào Về Web App",
             "type": "main",
             "index": 0
           }
