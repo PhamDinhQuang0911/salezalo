@@ -180,6 +180,85 @@ export async function clientUpdateSettings(data: Record<string, string>) {
   return { success: true, message: "Đã lưu cài đặt" };
 }
 
+async function callN8nWebhook(targetUrl: string, payload: any, timeoutMs = 120000): Promise<{ resp: Response; calledUrl: string; responseData: any }> {
+  const tryCall = async (url: string) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      return res;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  let resp: Response | null = null;
+  let calledUrl = targetUrl;
+
+  // 1. Thử gọi URL cấu hình chính
+  try {
+    resp = await tryCall(targetUrl);
+  } catch (err: any) {
+    resp = null;
+  }
+
+  // 2. Nếu thất bại (CORS/network error hoặc 404/500 do n8n chưa active hoặc chưa bật test), thử URL thay thế
+  const isFailed = !resp || !resp.ok;
+  if (isFailed) {
+    let altUrl = "";
+    if (targetUrl.includes("/webhook-test/")) {
+      altUrl = targetUrl.replace("/webhook-test/", "/webhook/");
+    } else if (targetUrl.includes("/webhook/")) {
+      altUrl = targetUrl.replace("/webhook/", "/webhook-test/");
+    }
+
+    if (altUrl) {
+      try {
+        const altResp = await tryCall(altUrl);
+        if (altResp.ok) {
+          resp = altResp;
+          calledUrl = altUrl;
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 3. Nếu vẫn thất bại, đưa ra thông báo hướng dẫn cực kỳ rõ ràng
+  if (!resp || !resp.ok) {
+    const isTest = targetUrl.includes("/webhook-test/");
+    let hint = "";
+    if (isTest) {
+      hint =
+        `Không thể kết nối n8n Webhook Test (${targetUrl}).\n` +
+        `👉 Cách 1 (Nếu bạn đang kiểm thử): Mở n8n (https://n8n.qmath.io.vn) -> Bấm nút "Test step" (hoặc "Execute workflow") ở góc dưới màn hình n8n TRƯỚC, rồi quay lại bấm Cào thành viên.\n` +
+        `👉 Cách 2 (Chạy tự động 24/7): Mở n8n -> Gạt công tắc [Active] (Màu xanh lá) ở góc trên bên phải -> Bấm Save (Ctrl+S). Sau đó đổi URL sang: ${targetUrl.replace("/webhook-test/", "/webhook/")}.`;
+    } else {
+      hint =
+        `Không thể kết nối n8n Webhook Production (${targetUrl}).\n` +
+        `👉 Nguyên nhân: Workflow trên n8n CHƯA ĐƯỢC BẬT [Active] (hoặc chưa import file workflow mới nhất).\n` +
+        `👉 Cách khắc phục:\n` +
+        `1. Mở n8n: https://n8n.qmath.io.vn\n` +
+        `2. Bấm "..." góc trên bên phải -> "Import from File" -> Chọn "Desktop\\Tool_Zalo_Workflow_Completed.json"\n` +
+        `3. Gạt công tắc góc trên bên phải sang [Active] (Màu xanh lá) và bấm Save (Ctrl + S).`;
+    }
+    throw new Error(hint);
+  }
+
+  let responseData: any = null;
+  try {
+    responseData = await resp.json();
+  } catch (e) {
+    responseData = null;
+  }
+
+  return { resp, calledUrl, responseData };
+}
+
 export async function clientTriggerScrape(data: {
   group_id?: string;
   name?: string;
@@ -203,41 +282,15 @@ export async function clientTriggerScrape(data: {
     throw new Error("Chưa thiết lập URL n8n Scrape Webhook cho tài khoản này.");
   }
 
-  // Tự động chuyển đổi nếu người dùng nhập nhầm URL test (/webhook-test/) sang URL production (/webhook/)
-  if (scrapeUrl.includes("/webhook-test/")) {
-    console.warn("Tự động chuyển đổi URL test sang URL production:", scrapeUrl);
-    scrapeUrl = scrapeUrl.replace("/webhook-test/", "/webhook/");
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes for large groups
-
-  let resp: Response;
-  try {
-    resp = await fetch(scrapeUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        groupId: data.group_id || "",
-        name: data.name || "",
-        groupName: data.name || "",
-        inviteLink: data.invite_link || "",
-        accountPhone: effectivePhone || "",
-        action: "scrape_group",
-        timestamp: new Date().toISOString(),
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  let responseData: any = null;
-  try {
-    responseData = await resp.json();
-  } catch (e) {
-    responseData = null;
-  }
+  const { resp, calledUrl, responseData } = await callN8nWebhook(scrapeUrl, {
+    groupId: data.group_id || "",
+    name: data.name || "",
+    groupName: data.name || "",
+    inviteLink: data.invite_link || "",
+    accountPhone: effectivePhone || "",
+    action: "scrape_group",
+    timestamp: new Date().toISOString(),
+  }, 120000);
 
   // If n8n responded with the scraped group/member dataset directly (via Respond to Webhook or When Last Node Finishes)
   if (responseData && (responseData.memberIds || responseData.response || (Array.isArray(responseData) && responseData.length > 0))) {
@@ -256,7 +309,7 @@ export async function clientTriggerScrape(data: {
 
   return {
     success: true,
-    message: `Đã gửi lệnh cào sang n8n thành công (${effectivePhone ? `SĐT: ${effectivePhone}` : "Webhook chung"})!`,
+    message: `Đã gửi lệnh cào sang n8n thành công qua ${calledUrl} (${effectivePhone ? `SĐT: ${effectivePhone}` : "Webhook chung"})!`,
     n8nStatus: resp.status,
   };
 }
@@ -282,11 +335,7 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     throw new Error(`Chưa cấu hình URL n8n Send Webhook cho ${campaign.account_phone ? `tài khoản ${campaign.account_phone}` : "hệ thống"}.`);
   }
 
-  // Tự động chuyển đổi nếu người dùng nhập nhầm URL test (/webhook-test/) sang URL production (/webhook/)
-  if (sendWebhookUrl.includes("/webhook-test/")) {
-    console.warn("Tự động chuyển đổi URL test sang URL production:", sendWebhookUrl);
-    sendWebhookUrl = sendWebhookUrl.replace("/webhook-test/", "/webhook/");
-  }
+
 
   const recipients = await getCampaignRecipients(campaign);
   if (recipients.length === 0) {
@@ -333,18 +382,9 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     timestamp: new Date().toISOString(),
   };
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const { resp, responseData } = await callN8nWebhook(sendWebhookUrl, payload, 30000);
 
-  const resp = await fetch(sendWebhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal: controller.signal,
-  });
-  clearTimeout(timeoutId);
-
-  const n8nText = await resp.text();
+  const n8nText = responseData ? JSON.stringify(responseData) : (await resp.text().catch(() => ""));
 
   await saveCampaign(campaignId, {
     status: "sending",
@@ -490,32 +530,13 @@ export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOv
     throw new Error("Chưa cấu hình URL Webhook đồng bộ bạn bè trên n8n.");
   }
 
-  // Tự động chuyển đổi nếu người dùng nhập nhầm URL test (/webhook-test/) sang URL production (/webhook/)
-  if (syncWebhookUrl.includes("/webhook-test/")) {
-    console.warn("Tự động chuyển đổi URL test sang URL production:", syncWebhookUrl);
-    syncWebhookUrl = syncWebhookUrl.replace("/webhook-test/", "/webhook/");
-  }
+  const { resp, responseData } = await callN8nWebhook(syncWebhookUrl, {
+    accountPhone: accountPhone || "",
+    action: "sync_friends",
+    timestamp: new Date().toISOString(),
+  }, 25000);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-  const resp = await fetch(syncWebhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      accountPhone: accountPhone || "",
-      action: "sync_friends",
-      timestamp: new Date().toISOString(),
-    }),
-    signal: controller.signal,
-  });
-  clearTimeout(timeoutId);
-
-  if (!resp.ok) {
-    throw new Error(`Lỗi kết nối n8n Webhook: ${resp.status} ${resp.statusText}`);
-  }
-
-  const data = await resp.json();
+  const data = responseData || {};
   const friendIds = new Set<string>((data.friendIds || []).map(String));
   const pendingIds = new Set<string>((data.pendingIds || []).map(String));
 

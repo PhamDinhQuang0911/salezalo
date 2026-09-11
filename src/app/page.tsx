@@ -724,8 +724,8 @@ export default function Home() {
     try {
       const sanitizedSettings = {
         ...settings,
-        n8n_scrape_webhook: (settings.n8n_scrape_webhook || "").trim().replace("/webhook-test/", "/webhook/"),
-        n8n_send_webhook: (settings.n8n_send_webhook || "").trim().replace("/webhook-test/", "/webhook/"),
+        n8n_scrape_webhook: (settings.n8n_scrape_webhook || "").trim(),
+        n8n_send_webhook: (settings.n8n_send_webhook || "").trim(),
       };
       setSettings(sanitizedSettings);
       const data = await clientUpdateSettings(sanitizedSettings);
