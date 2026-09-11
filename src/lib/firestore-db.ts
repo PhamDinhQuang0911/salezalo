@@ -172,6 +172,7 @@ export interface MemberFilter {
   sentStatus?: string; // 'sent' | 'unsent' | 'all'
   friendStatus?: string; // 'friend' | 'pending' | 'not_friend' | 'all'
   strangerBlock?: string; // 'blocked' | 'open' | 'all'
+  customerStatus?: string; // 'potential' | 'blocked' | 'standard' | 'all'
   search?: string;
   sortBy?: string; // 'newest' | 'friend_first' | 'pending_first' | 'not_friend_first'
   page?: number;
@@ -217,6 +218,14 @@ export async function getMembers(filter: MemberFilter = {}, forceRefresh = false
     allMembers = allMembers.filter((m) => m.block_stranger_msg === 1 || m.block_stranger_msg === true);
   } else if (filter.strangerBlock === "open") {
     allMembers = allMembers.filter((m) => !m.block_stranger_msg || m.block_stranger_msg === 0);
+  }
+
+  if (filter.customerStatus === "potential") {
+    allMembers = allMembers.filter((m) => m.customer_status === "potential");
+  } else if (filter.customerStatus === "blocked") {
+    allMembers = allMembers.filter((m) => m.customer_status === "blocked");
+  } else if (filter.customerStatus === "standard") {
+    allMembers = allMembers.filter((m) => !m.customer_status || m.customer_status === "standard");
   }
 
   if (filter.search) {
@@ -380,15 +389,30 @@ export async function deleteCampaign(id: string) {
   return true;
 }
 
-// Query eligible recipients for campaign with anti-spam filters
-export async function getCampaignRecipients(campaign: any) {
-  const snap = await getDocs(collection(firestore, collections.members));
-  let members = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+// Query eligible recipients for campaign with anti-spam filters & blacklist protection
+export async function getCampaignRecipients(campaign: any, forceRefresh = false) {
+  const now = Date.now();
+  if (forceRefresh || !cachedMembers || now - lastMembersFetchTime > CACHE_TTL_MS) {
+    const snap = await getDocs(collection(firestore, collections.members));
+    cachedMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+    lastMembersFetchTime = now;
+  }
+  let members = [...cachedMembers];
 
   // 1. Only regular members (no admin/creator)
   members = members.filter((m) => m.is_admin === 0 && m.role === "member");
 
-  // 2. Filter by target group if specified (ignore "all" or empty string)
+  // 2. BLACKLIST / BLOCKED FILTER: Strictly exclude all blocked customers
+  members = members.filter((m) => m.customer_status !== "blocked");
+
+  // 3. Customer classification filter: potential_only, standard_only, or all
+  if (campaign.customer_filter === "potential_only") {
+    members = members.filter((m) => m.customer_status === "potential");
+  } else if (campaign.customer_filter === "standard_only") {
+    members = members.filter((m) => !m.customer_status || m.customer_status === "standard");
+  }
+
+  // 4. Filter by target group if specified (ignore "all" or empty string)
   if (campaign.target_group_id && campaign.target_group_id !== "all" && campaign.target_group_id !== "") {
     members = members.filter((m) =>
       Array.isArray(m.group_ids)
@@ -397,16 +421,15 @@ export async function getCampaignRecipients(campaign: any) {
     );
   }
 
-  // 3. Filter by friend status if specified
+  // 5. Filter by friend status if specified
   if (campaign.friend_filter === "friends_only") {
     members = members.filter((m) => m.is_friend === 1);
   } else if (campaign.friend_filter === "not_friends_only") {
     members = members.filter((m) => m.is_friend !== 1);
   }
 
-  // 4. Cooldown days: exclude members who received campaign recently
+  // 6. Cooldown days: exclude members who received campaign recently
   if (campaign.cooldown_days > 0) {
-    const now = Date.now();
     const cooldownMs = campaign.cooldown_days * 24 * 60 * 60 * 1000;
     members = members.filter((m) => {
       if (!m.last_campaign_sent_at) return true;
@@ -415,7 +438,7 @@ export async function getCampaignRecipients(campaign: any) {
     });
   }
 
-  // 5. Stranger block filter: if not auto_friend_first, exclude members who block strangers
+  // 7. Stranger block filter: if not auto_friend_first, exclude members who block strangers
   if (!campaign.auto_friend_first) {
     members = members.filter((m) => !m.block_stranger_msg || m.block_stranger_msg === 0);
   }
@@ -474,6 +497,8 @@ export async function getStats() {
   const excludedAdmins = members.filter((m) => m.is_admin === 1 || m.role !== "member");
   const friendsCount = members.filter((m) => m.is_friend === 1);
   const sentMembersCount = members.filter((m) => (m.campaign_sent_count || 0) > 0);
+  const potentialCount = members.filter((m) => m.customer_status === "potential");
+  const blockedCount = members.filter((m) => m.customer_status === "blocked");
 
   return {
     total_groups: groupsSnap.size,
@@ -482,6 +507,8 @@ export async function getStats() {
     excluded_admins: excludedAdmins.length,
     friends_count: friendsCount.length,
     campaign_sent_members: sentMembersCount.length,
+    potential_count: potentialCount.length,
+    blocked_count: blockedCount.length,
     total_campaigns: campaignsSnap.size,
     total_accounts: accountsSnap.size,
   };
@@ -508,6 +535,43 @@ export async function batchUpdateMembersFriendStatus(updates: { zaloId: string; 
   }
 
   invalidateMembersCache();
+  return updatedCount;
+}
+
+export async function batchUpdateCustomerStatus(zaloIds: string[], status: "potential" | "blocked" | "standard") {
+  if (!zaloIds || zaloIds.length === 0) return 0;
+
+  const CHUNK_SIZE = 450;
+  let updatedCount = 0;
+  const nowIso = new Date().toISOString();
+
+  for (let i = 0; i < zaloIds.length; i += CHUNK_SIZE) {
+    const chunk = zaloIds.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(firestore);
+    for (const id of chunk) {
+      const docRef = doc(firestore, collections.members, String(id));
+      batch.update(docRef, {
+        customer_status: status,
+        customer_status_updated_at: nowIso,
+        updated_at: nowIso,
+      });
+    }
+    await batch.commit();
+    updatedCount += chunk.length;
+  }
+
+  // Update in-memory cache
+  if (cachedMembers) {
+    const idSet = new Set(zaloIds.map(String));
+    cachedMembers.forEach((m) => {
+      if (idSet.has(String(m.id || m.zalo_id))) {
+        m.customer_status = status;
+        m.customer_status_updated_at = nowIso;
+        m.updated_at = nowIso;
+      }
+    });
+  }
+
   return updatedCount;
 }
 

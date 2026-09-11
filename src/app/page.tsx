@@ -42,6 +42,9 @@ import {
   RotateCcw,
   Key,
   Wand2,
+  Star,
+  Target,
+  ShieldOff,
 } from "lucide-react";
 import {
   clientGetStats,
@@ -69,6 +72,9 @@ import {
   uploadMediaFile,
   clientSyncFriendStatus,
   clientTriggerSendFriendRequests,
+  clientBatchUpdateCustomerStatus,
+  clientQuickUpdateCampaignAudience,
+  clientCalculateCampaignRecipients,
 } from "@/lib/client-api";
 import {
   GEMINI_FLASH_MODELS,
@@ -139,6 +145,7 @@ export default function Home() {
   const [memberFilterSent, setMemberFilterSent] = useState("all"); // all | not_sent | sent
   const [memberFilterFriend, setMemberFilterFriend] = useState("all"); // all | friend | pending | not_friend
   const [memberFilterStranger, setMemberFilterStranger] = useState("all"); // all | allowed | blocked
+  const [memberFilterCustomer, setMemberFilterCustomer] = useState("all"); // all | potential | blocked | standard
   const [memberSortBy, setMemberSortBy] = useState("newest"); // newest | friend_first | pending_first | not_friend_first
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPagination, setMemberPagination] = useState({ total: 0, page: 1, limit: 30, totalPages: 1 });
@@ -146,14 +153,23 @@ export default function Home() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [isDeletingMembers, setIsDeletingMembers] = useState(false);
 
+  // Blacklist & Potential Leads Management Modal
+  const [showBlacklistModal, setShowBlacklistModal] = useState(false);
+  const [blacklistModalTab, setBlacklistModalTab] = useState<"blocked" | "potential">("blocked");
+  const [bulkUidInput, setBulkUidInput] = useState("");
+  const [bulkTargetAction, setBulkTargetAction] = useState<"blocked" | "potential" | "standard">("blocked");
+  const [isProcessingBulkCustomer, setIsProcessingBulkCustomer] = useState(false);
+  const [customerNotice, setCustomerNotice] = useState("");
+
   const initialCampaignForm = {
     name: "",
     message_template: "",
     target_group_id: "all",
     account_phone: "",
     friend_filter: "all",
+    customer_filter: "all", // all | potential_only | standard_only
     max_recipients: 100,
-    cooldown_days: 10,
+    cooldown_days: 0,
     auto_friend_first: 0,
     delay_seconds: 15,
     image_url: "",
@@ -171,6 +187,28 @@ export default function Home() {
   const [campaignForm, setCampaignForm] = useState(initialCampaignForm);
   const [isSubmittingCampaign, setIsSubmittingCampaign] = useState(false);
   const [campaignNotice, setCampaignNotice] = useState("");
+
+  // Quick Audience Editor for Saved Campaigns
+  const [quickAudienceModalCampaign, setQuickAudienceModalCampaign] = useState<any | null>(null);
+  const [quickAudienceForm, setQuickAudienceForm] = useState<{
+    target_group_id: string;
+    friend_filter: string;
+    customer_filter: string;
+    max_recipients: number;
+    cooldown_days: number;
+    auto_friend_first: number;
+  }>({
+    target_group_id: "all",
+    friend_filter: "all",
+    customer_filter: "all",
+    max_recipients: 100,
+    cooldown_days: 0,
+    auto_friend_first: 0,
+  });
+  const [quickAudienceCalculatedCount, setQuickAudienceCalculatedCount] = useState<number>(0);
+  const [isCalculatingQuickAudience, setIsCalculatingQuickAudience] = useState(false);
+  const [isSavingQuickAudience, setIsSavingQuickAudience] = useState(false);
+  const [isQuickSending, setIsQuickSending] = useState(false);
 
   // Media Direct Upload for Campaign (Images, Videos, Documents/PDF/Word)
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -263,7 +301,7 @@ export default function Home() {
     } else if (activeTab === "auto_friend") {
       fetchAutoFriendPreview();
     }
-  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberSortBy, autoFriendGroupId, autoFriendLimit]);
+  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberFilterCustomer, memberSortBy, autoFriendGroupId, autoFriendLimit]);
 
   const fetchStats = async () => {
     try {
@@ -337,6 +375,7 @@ export default function Home() {
         sentStatus: memberFilterSent,
         friendStatus: memberFilterFriend,
         strangerBlock: memberFilterStranger,
+        customerStatus: memberFilterCustomer,
         search: memberSearch,
         sortBy: memberSortBy,
         page,
@@ -432,6 +471,129 @@ export default function Home() {
       alert("Lỗi xóa thành viên: " + e.message);
     } finally {
       setIsDeletingMembers(false);
+    }
+  };
+
+  // Batch update customer classification (potential / blocked / standard)
+  const handleBatchSetCustomerStatus = async (status: "potential" | "blocked" | "standard") => {
+    if (selectedMemberIds.length === 0) return;
+    const label = status === "potential" ? "⭐ Khách Hàng Tiềm Năng" : status === "blocked" ? "🚫 Danh Sách Chặn (Blacklist)" : "👥 Thành viên thường";
+    if (!confirm(`Xác nhận đánh dấu ${selectedMemberIds.length} thành viên đã chọn thành "${label}"?`)) return;
+    try {
+      await clientBatchUpdateCustomerStatus(selectedMemberIds, status);
+      const count = selectedMemberIds.length;
+      setSelectedMemberIds([]);
+      fetchMembers(memberPagination.page);
+      fetchStats();
+      alert(`Đã cập nhật trạng thái "${label}" cho ${count} thành viên!`);
+    } catch (e: any) {
+      alert("Lỗi: " + e.message);
+    }
+  };
+
+  // Set single member customer status
+  const handleSetSingleCustomerStatus = async (zaloId: string, status: "potential" | "blocked" | "standard") => {
+    try {
+      await clientUpdateMember(zaloId, {
+        customer_status: status,
+        customer_status_updated_at: new Date().toISOString(),
+      });
+      setMembers((prev) =>
+        prev.map((m) => (m.zalo_id === zaloId ? { ...m, customer_status: status } : m))
+      );
+      fetchStats();
+    } catch (e: any) {
+      alert("Lỗi cập nhật: " + e.message);
+    }
+  };
+
+  // Bulk UID processor (for Modal)
+  const handleProcessBulkUids = async () => {
+    if (!bulkUidInput.trim()) return;
+    const lines = bulkUidInput.split(/[\r\n,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+
+    setIsProcessingBulkCustomer(true);
+    setCustomerNotice("");
+    try {
+      await clientBatchUpdateCustomerStatus(lines, bulkTargetAction);
+      const label = bulkTargetAction === "potential" ? "⭐ Tiềm Năng" : bulkTargetAction === "blocked" ? "🚫 Bị Chặn (Blacklist)" : "👥 Thành viên thường";
+      setCustomerNotice(`Đã cập nhật thành công ${lines.length} UID/SĐT sang trạng thái: ${label}!`);
+      setBulkUidInput("");
+      fetchMembers(1);
+      fetchStats();
+    } catch (err: any) {
+      setCustomerNotice("Lỗi: " + err.message);
+    } finally {
+      setIsProcessingBulkCustomer(false);
+    }
+  };
+
+  // Quick Audience Handlers
+  const handleOpenQuickAudienceModal = (c: any) => {
+    setQuickAudienceModalCampaign(c);
+    const formConfig = {
+      target_group_id: c.target_group_id || "all",
+      friend_filter: c.friend_filter || "all",
+      customer_filter: c.customer_filter || "all",
+      max_recipients: c.max_recipients !== undefined ? Number(c.max_recipients) : 100,
+      cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 0,
+      auto_friend_first: c.auto_friend_first ? 1 : 0,
+    };
+    setQuickAudienceForm(formConfig);
+    calculateQuickAudienceRecipients(formConfig);
+  };
+
+  const calculateQuickAudienceRecipients = async (config: any) => {
+    setIsCalculatingQuickAudience(true);
+    try {
+      const res = await clientCalculateCampaignRecipients(config);
+      setQuickAudienceCalculatedCount(res.count);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsCalculatingQuickAudience(false);
+    }
+  };
+
+  const handleQuickAudienceChange = (patch: Partial<typeof quickAudienceForm>) => {
+    const updated = { ...quickAudienceForm, ...patch };
+    setQuickAudienceForm(updated);
+    calculateQuickAudienceRecipients(updated);
+  };
+
+  const handleSaveQuickAudience = async () => {
+    if (!quickAudienceModalCampaign) return;
+    setIsSavingQuickAudience(true);
+    try {
+      await clientQuickUpdateCampaignAudience(quickAudienceModalCampaign.id, quickAudienceForm);
+      setQuickAudienceModalCampaign(null);
+      fetchCampaigns();
+      fetchStats();
+      alert("Đã cập nhật đối tượng cho chiến dịch thành công!");
+    } catch (e: any) {
+      alert("Lỗi lưu đối tượng: " + e.message);
+    } finally {
+      setIsSavingQuickAudience(false);
+    }
+  };
+
+  const handleQuickAudienceSendNow = async () => {
+    if (!quickAudienceModalCampaign) return;
+    if (!confirm(`Xác nhận lưu đối tượng và kích hoạt workflow n8n gửi tin cho chiến dịch "${quickAudienceModalCampaign.name}" ngay bây giờ?`)) return;
+    setIsQuickSending(true);
+    try {
+      await clientQuickUpdateCampaignAudience(quickAudienceModalCampaign.id, quickAudienceForm);
+      const data = await clientTriggerSendCampaign(String(quickAudienceModalCampaign.id));
+      alert(data.message || (data.success ? "Đã gửi lệnh sang n8n thành công!" : "Lỗi"));
+      setQuickAudienceModalCampaign(null);
+      fetchCampaigns();
+      fetchStats();
+      fetchMembers(memberPagination.page);
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    } finally {
+      setIsQuickSending(false);
     }
   };
 
@@ -999,8 +1161,9 @@ export default function Home() {
       target_group_id: c.target_group_id || "all",
       account_phone: c.account_phone || "",
       friend_filter: c.friend_filter || "all",
+      customer_filter: c.customer_filter || "all",
       max_recipients: c.max_recipients || 100,
-      cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 10,
+      cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 0,
       auto_friend_first: c.auto_friend_first || 0,
       delay_seconds: c.delay_seconds || 15,
       image_url: c.image_url || "",
@@ -1407,14 +1570,14 @@ export default function Home() {
             </div>
 
             {/* Sub Status Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
                   <MessageSquare className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xs text-slate-400">Đã gửi tin chiến dịch</div>
-                  <div className="text-xl font-bold text-white">{stats.messagedCount || 0} thành viên</div>
+                  <div className="text-lg font-bold text-white">{stats.campaignSentMembers || stats.messagedCount || 0} thành viên</div>
                 </div>
               </div>
 
@@ -1424,17 +1587,37 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-xs text-slate-400">Đã kết bạn thành công</div>
-                  <div className="text-xl font-bold text-white">{stats.friendsCount || 0} thành viên</div>
+                  <div className="text-lg font-bold text-white">{stats.friendsCount || 0} thành viên</div>
                 </div>
               </div>
 
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+              <div className="bg-slate-900/80 border border-amber-500/20 bg-amber-950/10 rounded-2xl p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center">
+                  <Star className="w-5 h-5 fill-amber-400" />
+                </div>
+                <div>
+                  <div className="text-xs text-amber-300/80 font-medium">Khách Tiềm Năng</div>
+                  <div className="text-lg font-bold text-amber-400">{stats.potentialCount || 0} người</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-red-500/20 bg-red-950/10 rounded-2xl p-4 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-red-500/15 text-red-400 flex items-center justify-center">
                   <ShieldAlert className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs text-slate-400">Chặn tin nhắn người lạ</div>
-                  <div className="text-xl font-bold text-white">{stats.strangerBlockedCount || 0} thành viên</div>
+                  <div className="text-xs text-red-300/80 font-medium">Bị Chặn (Blacklist)</div>
+                  <div className="text-lg font-bold text-red-400">{stats.blockedCount || 0} người</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400">Chặn tin nhắn lạ</div>
+                  <div className="text-lg font-bold text-white">{stats.strangerBlockedCount || 0} người</div>
                 </div>
               </div>
             </div>
@@ -1699,8 +1882,76 @@ export default function Home() {
                   )}
 
 
+                  {/* Quick Classification Status Pills */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800/60 mt-3">
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                      <button
+                        onClick={() => setMemberFilterCustomer("all")}
+                        className={`px-3 py-1 text-xs rounded-xl transition cursor-pointer font-medium flex items-center gap-1.5 ${
+                          memberFilterCustomer === "all"
+                            ? "bg-blue-600 text-white shadow-sm"
+                            : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800"
+                        }`}
+                      >
+                        <span>Tất cả</span>
+                        <span className="text-[10px] opacity-75">({stats.targetMembers ?? stats.filtered_members ?? 0})</span>
+                      </button>
+
+                      <button
+                        onClick={() => setMemberFilterCustomer("potential")}
+                        className={`px-3 py-1 text-xs rounded-xl transition cursor-pointer font-medium flex items-center gap-1.5 ${
+                          memberFilterCustomer === "potential"
+                            ? "bg-amber-600 text-white shadow-sm shadow-amber-600/30"
+                            : "bg-amber-500/10 text-amber-300 hover:text-amber-200 border border-amber-500/20"
+                        }`}
+                      >
+                        <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                        <span>Khách Tiềm Năng</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-200 font-bold">
+                          {stats.potentialCount || 0}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={() => setMemberFilterCustomer("blocked")}
+                        className={`px-3 py-1 text-xs rounded-xl transition cursor-pointer font-medium flex items-center gap-1.5 ${
+                          memberFilterCustomer === "blocked"
+                            ? "bg-red-600 text-white shadow-sm shadow-red-600/30"
+                            : "bg-red-500/10 text-red-300 hover:text-red-200 border border-red-500/20"
+                        }`}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                        <span>Danh Sách Chặn (Blacklist)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-red-500/20 text-red-200 font-bold">
+                          {stats.blockedCount || 0}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={() => setMemberFilterCustomer("standard")}
+                        className={`px-3 py-1 text-xs rounded-xl transition cursor-pointer font-medium flex items-center gap-1.5 ${
+                          memberFilterCustomer === "standard"
+                            ? "bg-slate-700 text-white shadow-sm"
+                            : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800"
+                        }`}
+                      >
+                        <span>Chưa phân loại</span>
+                      </button>
+                    </div>
+
+                    {/* Button to Open Blacklist / Leads Manager Modal */}
+                    <button
+                      onClick={() => setShowBlacklistModal(true)}
+                      className="text-xs bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white px-3 py-1 rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer transition shadow-sm shrink-0 ml-auto"
+                      title="Quản lý danh sách đen và nhập UID/SĐT hàng loạt"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Quản Lý Blacklist & Tiềm Năng</span>
+                    </button>
+                  </div>
+
                   {/* Filter Selectors */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-3">
                     {/* Role Filter */}
                     <select
                       value={memberFilterRole}
@@ -1710,6 +1961,18 @@ export default function Home() {
                       <option value="member">Thành viên thường (Tệp gửi tin)</option>
                       <option value="admin_only">Trưởng & Phó nhóm (Đã lọc)</option>
                       <option value="all">Tất cả thành viên & Admin</option>
+                    </select>
+
+                    {/* Customer Classification Filter */}
+                    <select
+                      value={memberFilterCustomer}
+                      onChange={(e) => setMemberFilterCustomer(e.target.value)}
+                      className="bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="all">⭐ Phân loại: Tất cả</option>
+                      <option value="potential">⭐ Khách hàng tiềm năng</option>
+                      <option value="blocked">🚫 Bị chặn (Blacklist)</option>
+                      <option value="standard">👥 Chưa phân loại (Thường)</option>
                     </select>
 
                     {/* Sent Status */}
@@ -1818,25 +2081,53 @@ export default function Home() {
 
                   {/* Bulk Actions Banner */}
                   {selectedMemberIds.length > 0 && (
-                    <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
-                      <div className="flex items-center gap-2 text-xs text-red-300 font-medium">
-                        <CheckSquare className="w-4 h-4 text-red-400" />
-                        <span>Đã chọn: <strong className="text-white">{selectedMemberIds.length}</strong> thành viên</span>
+                    <div className="bg-slate-800/90 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2 animate-fadeIn shadow-lg">
+                      <div className="flex items-center gap-2 text-xs text-slate-200 font-medium">
+                        <CheckSquare className="w-4 h-4 text-blue-400" />
+                        <span>Đã chọn: <strong className="text-white bg-blue-500/20 px-1.5 py-0.5 rounded text-blue-300">{selectedMemberIds.length}</strong> thành viên</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center flex-wrap gap-2">
+                        {/* Đánh dấu tiềm năng hàng loạt */}
                         <button
-                          onClick={() => setSelectedMemberIds([])}
-                          className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer"
+                          onClick={() => handleBatchSetCustomerStatus("potential")}
+                          className="text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-medium px-2.5 py-1.5 rounded-lg border border-amber-500/40 flex items-center gap-1.5 transition cursor-pointer shadow-sm"
                         >
-                          Bỏ chọn
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                          <span>Đặt Tiềm Năng</span>
                         </button>
+
+                        {/* Đưa vào Blacklist hàng loạt */}
+                        <button
+                          onClick={() => handleBatchSetCustomerStatus("blocked")}
+                          className="text-xs bg-red-500/15 hover:bg-red-500/25 text-red-300 font-medium px-2.5 py-1.5 rounded-lg border border-red-500/40 flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                          <span>Đưa Vào Blacklist</span>
+                        </button>
+
+                        {/* Bỏ phân loại hàng loạt */}
+                        <button
+                          onClick={() => handleBatchSetCustomerStatus("standard")}
+                          className="text-xs bg-slate-700/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-600 flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <span>Bỏ phân loại</span>
+                        </button>
+
+                        {/* Xóa thành viên */}
                         <button
                           onClick={handleDeleteSelectedMembers}
                           disabled={isDeletingMembers}
-                          className="text-xs bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm shadow-red-600/30 cursor-pointer disabled:opacity-50 transition"
+                          className="text-xs bg-red-600/90 hover:bg-red-600 text-white font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 transition ml-2"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Xóa {selectedMemberIds.length} thành viên đã chọn</span>
+                          <span>Xóa</span>
+                        </button>
+
+                        <button
+                          onClick={() => setSelectedMemberIds([])}
+                          className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded-lg border border-slate-700 bg-slate-850 cursor-pointer transition"
+                        >
+                          Bỏ chọn
                         </button>
                       </div>
                     </div>
@@ -1867,6 +2158,7 @@ export default function Home() {
                             </th>
                             <th className="py-3 px-4">Thành viên Zalo</th>
                             <th className="py-3 px-4">Zalo UID</th>
+                            <th className="py-3 px-3 text-center">Phân Loại Khách</th>
                             <th className="py-3 px-4 text-center">Trạng Thái (Icons)</th>
                             <th className="py-3 px-4">Thuộc nhóm</th>
                             <th className="py-3 px-4">Gửi tin gần nhất</th>
@@ -1906,6 +2198,46 @@ export default function Home() {
 
                               <td className="py-3 px-4 font-mono text-slate-300">
                                 {m.zalo_id}
+                              </td>
+
+                              {/* Customer Classification */}
+                              <td className="py-3 px-3 text-center">
+                                {m.customer_status === "potential" ? (
+                                  <button
+                                    onClick={() => handleSetSingleCustomerStatus(m.zalo_id, "standard")}
+                                    title="Đang là Khách Tiềm Năng (Bấm để chuyển về thường)"
+                                    className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 transition cursor-pointer font-medium inline-flex items-center gap-1.5 text-[11px] shadow-sm"
+                                  >
+                                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                                    <span>Tiềm Năng</span>
+                                  </button>
+                                ) : m.customer_status === "blocked" ? (
+                                  <button
+                                    onClick={() => handleSetSingleCustomerStatus(m.zalo_id, "standard")}
+                                    title="Đang bị chặn / Blacklist khỏi tiếp thị (Bấm để mở chặn)"
+                                    className="px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/40 text-red-300 hover:bg-red-500/25 transition cursor-pointer font-medium inline-flex items-center gap-1.5 text-[11px] shadow-sm"
+                                  >
+                                    <ShieldAlert className="w-3 h-3 text-red-400" />
+                                    <span>Bị Chặn</span>
+                                  </button>
+                                ) : (
+                                  <div className="inline-flex items-center gap-1 bg-slate-950/80 p-0.5 rounded-lg border border-slate-800">
+                                    <button
+                                      onClick={() => handleSetSingleCustomerStatus(m.zalo_id, "potential")}
+                                      title="Đánh dấu Khách Tiềm Năng"
+                                      className="p-1 rounded text-slate-500 hover:text-amber-300 hover:bg-amber-500/10 transition cursor-pointer"
+                                    >
+                                      <Star className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleSetSingleCustomerStatus(m.zalo_id, "blocked")}
+                                      title="Đưa vào Danh Sách Chặn (Blacklist)"
+                                      className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+                                    >
+                                      <ShieldAlert className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
                               </td>
 
                               {/* Icons */}
@@ -3057,7 +3389,7 @@ export default function Home() {
 
               <form onSubmit={handleSaveCampaign} className="space-y-4">
                 {/* Row 1: Clean, modern, lightweight controls */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3.5">
                   {/* Col 1: Campaign Name */}
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1.5">Tên Chiến Dịch (*)</label>
@@ -3091,7 +3423,7 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Col 3: Target Group Selector (Lightweight font, All vs Specific Group toggle) */}
+                  {/* Col 3: Target Group Selector */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
@@ -3108,7 +3440,7 @@ export default function Home() {
                               : "text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          Tất cả ({stats.targetMembers ?? stats.filtered_members ?? 0})
+                          Tất cả
                         </button>
                         <button
                           type="button"
@@ -3130,9 +3462,9 @@ export default function Home() {
 
                     {campaignForm.target_group_id === "all" ? (
                       <div className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 flex items-center justify-between shadow-inner">
-                        <span className="truncate text-slate-200 font-normal">Toàn bộ thành viên sạch các nhóm</span>
-                        <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/15 px-2 py-0.5 rounded-md ml-2 shrink-0">
-                          {stats.targetMembers ?? stats.filtered_members ?? 0} người
+                        <span className="truncate text-slate-200 font-normal">Toàn bộ nhóm</span>
+                        <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded ml-1 shrink-0">
+                          {stats.targetMembers ?? stats.filtered_members ?? 0}
                         </span>
                       </div>
                     ) : (
@@ -3153,7 +3485,36 @@ export default function Home() {
                     )}
                   </div>
 
-                  {/* Col 4: Friend Filter (Neat, clean, lightweight font, no oversized emojis) */}
+                  {/* Col 4: Customer Classification Filter */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                        <span>Đối Tượng Khách</span>
+                      </label>
+                      <span className="text-[10px] font-medium text-amber-400">
+                        {campaignForm.customer_filter === "potential_only" ? "⭐ Tiềm năng" : campaignForm.customer_filter === "standard_only" ? "👥 Thường" : "🌐 Tất cả"}
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        value={campaignForm.customer_filter || "all"}
+                        onChange={(e) => setCampaignForm({ ...campaignForm, customer_filter: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-normal text-slate-200 focus:outline-none transition-colors appearance-none pr-8 cursor-pointer"
+                      >
+                        <option value="all" className="bg-slate-950 text-slate-200 py-1">🌐 Tất cả (Trừ người bị chặn)</option>
+                        <option value="potential_only" className="bg-slate-950 text-slate-200 py-1">⭐ Chỉ gửi Khách Tiềm Năng</option>
+                        <option value="standard_only" className="bg-slate-950 text-slate-200 py-1">👥 Chỉ gửi Khách thông thường</option>
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 truncate">
+                      Tự động loại trừ 100% người bị chặn
+                    </p>
+                  </div>
+
+                  {/* Col 5: Friend Filter */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
@@ -3177,18 +3538,18 @@ export default function Home() {
                         onChange={(e) => setCampaignForm({ ...campaignForm, friend_filter: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs font-normal text-slate-200 focus:outline-none transition-colors appearance-none pr-8 cursor-pointer"
                       >
-                        <option value="all" className="bg-slate-950 text-slate-200 py-1">🌐 Tất cả thành viên</option>
-                        <option value="friends_first" className="bg-slate-950 text-slate-200 py-1">⚡ Mix: Ưu tiên bạn bè trước ➔ Người lạ sau</option>
-                        <option value="friends_only" className="bg-slate-950 text-slate-200 py-1">🤝 Chỉ gửi người đã là bạn bè (An toàn nhất)</option>
-                        <option value="not_friends_only" className="bg-slate-950 text-slate-200 py-1">👤 Chỉ gửi người chưa kết bạn (Mở rộng mới)</option>
+                        <option value="all" className="bg-slate-950 text-slate-200 py-1">🌐 Tất cả bạn & lạ</option>
+                        <option value="friends_first" className="bg-slate-950 text-slate-200 py-1">⚡ Mix: Ưu tiên bạn bè trước</option>
+                        <option value="friends_only" className="bg-slate-950 text-slate-200 py-1">🤝 Chỉ gửi bạn bè</option>
+                        <option value="not_friends_only" className="bg-slate-950 text-slate-200 py-1">👤 Chỉ gửi người lạ</option>
                       </select>
                       <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     </div>
                     <p className="text-[10px] text-slate-500 mt-1 truncate">
-                      {campaignForm.friend_filter === "friends_first" && "Gửi hết bạn bè trước, sau đó gửi tới người lạ"}
-                      {campaignForm.friend_filter === "friends_only" && "Chỉ gửi bạn bè để tránh bị Zalo chặn tin lạ"}
-                      {campaignForm.friend_filter === "not_friends_only" && "Chỉ gửi người lạ để tiếp cận khách hàng mới"}
-                      {(!campaignForm.friend_filter || campaignForm.friend_filter === "all") && "Gửi cho tất cả mọi người trong tệp đã chọn"}
+                      {campaignForm.friend_filter === "friends_first" && "Gửi bạn bè trước, sau đó gửi người lạ"}
+                      {campaignForm.friend_filter === "friends_only" && "Chỉ gửi người đã là bạn bè"}
+                      {campaignForm.friend_filter === "not_friends_only" && "Chỉ gửi người chưa kết bạn"}
+                      {(!campaignForm.friend_filter || campaignForm.friend_filter === "all") && "Gửi cho cả bạn bè và người lạ"}
                     </p>
                   </div>
                 </div>
@@ -3809,9 +4170,31 @@ export default function Home() {
                       <div className="space-y-1.5 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-sm text-slate-100">{c.name}</span>
-                          <span className="bg-slate-800 text-slate-300 text-[11px] px-2 py-0.5 rounded">
-                            {c.group_name ? `Nhóm: ${c.group_name}` : "Tất cả nhóm"}
-                          </span>
+
+                          {/* Interactive Group Badge */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenQuickAudienceModal(c)}
+                            className="bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-[11px] px-2 py-0.5 rounded cursor-pointer border border-slate-700/60 transition flex items-center gap-1 shadow-sm"
+                            title="Bấm để đổi nhanh tệp nhóm gửi"
+                          >
+                            <span>{c.group_name ? `Nhóm: ${c.group_name}` : "Tất cả nhóm"}</span>
+                            <ChevronDown className="w-3 h-3 text-slate-400" />
+                          </button>
+
+                          {/* Customer Filter Badge */}
+                          {c.customer_filter === "potential_only" && (
+                            <span className="bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[11px] px-2 py-0.5 rounded font-medium flex items-center gap-1">
+                              <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                              <span>Chỉ khách tiềm năng</span>
+                            </span>
+                          )}
+                          {c.customer_filter === "standard_only" && (
+                            <span className="bg-slate-800 text-slate-300 text-[11px] px-2 py-0.5 rounded">
+                              Khách thường
+                            </span>
+                          )}
+
                           {c.friend_filter === "friends_first" && (
                             <span className="bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[11px] px-2 py-0.5 rounded font-medium">
                               🤝➡️➕ Mix: Bạn bè trước
@@ -3832,9 +4215,17 @@ export default function Home() {
                               SĐT: {c.account_phone}
                             </span>
                           )}
-                          <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] px-2 py-0.5 rounded font-semibold">
-                            {c.target_count} người nhận thỏa mãn
-                          </span>
+
+                          {/* Interactive Target Count Badge */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenQuickAudienceModal(c)}
+                            className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[11px] px-2 py-0.5 rounded font-semibold cursor-pointer transition flex items-center gap-1 shadow-sm"
+                            title="Bấm để chỉnh nhanh đối tượng & số lượng gửi"
+                          >
+                            <span>{c.target_count} người nhận thỏa mãn</span>
+                            <ChevronDown className="w-3 h-3 text-blue-400" />
+                          </button>
                         </div>
 
                         <div className="text-xs text-slate-400 italic line-clamp-1">
@@ -3842,7 +4233,7 @@ export default function Home() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                          <span>Loại trừ: {c.cooldown_days !== undefined ? c.cooldown_days : 10} ngày qua</span>
+                          <span>Loại trừ: {c.cooldown_days !== undefined ? c.cooldown_days : 0} ngày qua</span>
                           <span>• Giới hạn: tối đa {c.max_recipients || 100} người</span>
                           <span>• Delay: {c.delay_seconds || 15}s</span>
                           {Boolean(c.auto_friend_first) && <span className="text-blue-400 font-medium">• Tự kết bạn trước</span>}
@@ -3860,6 +4251,16 @@ export default function Home() {
                         >
                           <Send className="w-3.5 h-3.5" />
                           <span>Gửi qua n8n</span>
+                        </button>
+
+                        {/* Thao tác nhanh đối tượng */}
+                        <button
+                          onClick={() => handleOpenQuickAudienceModal(c)}
+                          className="bg-slate-800 hover:bg-slate-750 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-xs font-medium px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm hover:border-amber-500/60"
+                          title="Đổi nhóm, lọc khách tiềm năng, chỉnh số lượng gửi ngay mà không cần bấm Sửa"
+                        >
+                          <Target className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Đổi Đối Tượng</span>
                         </button>
 
                         {/* Sửa chiến dịch */}
@@ -4531,6 +4932,438 @@ export default function Home() {
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Lưu API Key</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: QUICK AUDIENCE SELECTOR ================= */}
+      {quickAudienceModalCampaign && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full p-5 shadow-2xl space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Target className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm text-white flex items-center gap-1.5">
+                    <span>Thao Tác Nhanh Đối Tượng Gửi Tin</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Chiến dịch: <span className="text-amber-300 font-medium font-mono">"{quickAudienceModalCampaign.name}"</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickAudienceModalCampaign(null)}
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+              {/* 1. Tệp Nhóm */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-blue-400" />
+                    <span>1. Tệp Nhóm Áp Dụng</span>
+                  </label>
+                  <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAudienceChange({ target_group_id: "all" })}
+                      className={`px-2 py-0.5 text-[10px] rounded-md transition font-medium cursor-pointer ${
+                        quickAudienceForm.target_group_id === "all"
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Tất cả nhóm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (quickAudienceForm.target_group_id === "all" && groups.length > 0) {
+                          handleQuickAudienceChange({ target_group_id: groups[0].group_id });
+                        }
+                      }}
+                      className={`px-2 py-0.5 text-[10px] rounded-md transition font-medium cursor-pointer ${
+                        quickAudienceForm.target_group_id !== "all"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      Từng nhóm
+                    </button>
+                  </div>
+                </div>
+
+                {quickAudienceForm.target_group_id === "all" ? (
+                  <div className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 flex items-center justify-between">
+                    <span>Toàn bộ thành viên sạch các nhóm</span>
+                    <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/15 px-2 py-0.5 rounded">
+                      {stats.targetMembers ?? stats.filtered_members ?? 0} người
+                    </span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <select
+                      value={quickAudienceForm.target_group_id}
+                      onChange={(e) => handleQuickAudienceChange({ target_group_id: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 hover:border-slate-600 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none appearance-none pr-8 cursor-pointer"
+                    >
+                      {groups.map((g) => (
+                        <option key={g.group_id} value={g.group_id} className="bg-slate-950 text-slate-200">
+                          {g.name} ({g.filtered_member_count} thành viên)
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                )}
+              </div>
+
+              {/* 2 & 3: Phân Loại Khách Hàng & Bạn Bè */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Customer Classification */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                    <span>2. Phân Loại Khách</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={quickAudienceForm.customer_filter || "all"}
+                      onChange={(e) => handleQuickAudienceChange({ customer_filter: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 hover:border-slate-600 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none appearance-none pr-8 cursor-pointer"
+                    >
+                      <option value="all" className="bg-slate-950 text-slate-200">🌐 Tất cả (Trừ người bị chặn)</option>
+                      <option value="potential_only" className="bg-slate-950 text-slate-200">⭐ Chỉ gửi Khách Tiềm Năng</option>
+                      <option value="standard_only" className="bg-slate-950 text-slate-200">👥 Chỉ gửi Khách thường</option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Tự động loại trừ người trong Blacklist</p>
+                </div>
+
+                {/* Friend Filter */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
+                    <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>3. Phân Loại Bạn Bè</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={quickAudienceForm.friend_filter || "all"}
+                      onChange={(e) => handleQuickAudienceChange({ friend_filter: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 hover:border-slate-600 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none appearance-none pr-8 cursor-pointer"
+                    >
+                      <option value="all" className="bg-slate-950 text-slate-200">🌐 Tất cả bạn bè & người lạ</option>
+                      <option value="friends_first" className="bg-slate-950 text-slate-200">⚡ Mix: Bạn bè trước ➔ Lạ sau</option>
+                      <option value="friends_only" className="bg-slate-950 text-slate-200">🤝 Chỉ gửi người đã là bạn bè</option>
+                      <option value="not_friends_only" className="bg-slate-950 text-slate-200">👤 Chỉ gửi người chưa kết bạn</option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Giới Hạn & Giãn Cách */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-slate-300">Giới hạn người nhận</label>
+                      <div className="flex items-center gap-1">
+                        {[20, 50, 100].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => handleQuickAudienceChange({ max_recipients: num })}
+                            className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
+                              quickAudienceForm.max_recipients === num
+                                ? "bg-blue-600 text-white font-bold"
+                                : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                            }`}
+                          >
+                            {num}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      max="2000"
+                      value={quickAudienceForm.max_recipients}
+                      onChange={(e) => handleQuickAudienceChange({ max_recipients: parseInt(e.target.value) || 50 })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-slate-300">Loại trừ đã gửi trong</label>
+                      <div className="flex items-center gap-1">
+                        {[0, 3, 7].map((days) => (
+                          <button
+                            key={days}
+                            type="button"
+                            onClick={() => handleQuickAudienceChange({ cooldown_days: days })}
+                            className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
+                              quickAudienceForm.cooldown_days === days
+                                ? "bg-emerald-600 text-white font-bold"
+                                : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                            }`}
+                          >
+                            {days === 0 ? "0d (Ngay)" : `${days}d`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      max="365"
+                      value={quickAudienceForm.cooldown_days}
+                      onChange={(e) => handleQuickAudienceChange({ cooldown_days: parseInt(e.target.value) || 0 })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 pt-1">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(quickAudienceForm.auto_friend_first)}
+                    onChange={(e) => handleQuickAudienceChange({ auto_friend_first: e.target.checked ? 1 : 0 })}
+                    className="rounded border-slate-700 text-blue-600 focus:ring-0 w-4 h-4 bg-slate-900"
+                  />
+                  <span>Tự kết bạn trước khi gửi tin (vượt qua rào chặn tin nhắn người lạ)</span>
+                </label>
+              </div>
+
+              {/* Real-time Counter Preview */}
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-slate-950 border border-blue-500/30 flex items-center justify-between shadow-inner">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-xs text-slate-200 font-medium">Số người nhận thỏa mãn sẵn sàng gửi:</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {isCalculatingQuickAudience ? (
+                    <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                  ) : (
+                    <span className="text-base font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-3 py-0.5 rounded-lg font-mono">
+                      {quickAudienceCalculatedCount} người
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setQuickAudienceModalCampaign(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveQuickAudience}
+                disabled={isSavingQuickAudience}
+                className="bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white border border-slate-600 text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                {isSavingQuickAudience ? "Đang lưu..." : "Lưu Đối Tượng"}
+              </button>
+              <button
+                type="button"
+                onClick={handleQuickAudienceSendNow}
+                disabled={isQuickSending}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer shadow-md shadow-indigo-600/20 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isQuickSending ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang gửi...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Lưu & Gửi n8n Ngay</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: BLACKLIST & POTENTIAL LEADS MANAGER ================= */}
+      {showBlacklistModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm text-white flex items-center gap-1.5">
+                    <span>Quản Lý Phân Loại & Danh Sách Đen (Blacklist)</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Bảo vệ tài khoản, phân loại tệp khách hàng tiềm năng và cách ly người bị chặn khỏi tiếp thị
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowBlacklistModal(false); setCustomerNotice(""); }}
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+              <button
+                type="button"
+                onClick={() => setBlacklistModalTab("blocked")}
+                className={`px-3 py-1.5 text-xs rounded-xl transition cursor-pointer font-medium flex items-center gap-1.5 ${
+                  blacklistModalTab === "blocked"
+                    ? "bg-red-600 text-white shadow-sm shadow-red-600/30"
+                    : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Danh Sách Chặn / Blacklist ({stats.blockedCount || 0})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBlacklistModalTab("potential")}
+                className={`px-3 py-1.5 text-xs rounded-xl transition cursor-pointer font-medium flex items-center gap-1.5 ${
+                  blacklistModalTab === "potential"
+                    ? "bg-amber-600 text-white shadow-sm shadow-amber-600/30"
+                    : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Star className="w-3.5 h-3.5 fill-amber-400" />
+                <span>Khách Hàng Tiềm Năng ({stats.potentialCount || 0})</span>
+              </button>
+            </div>
+
+            {/* Notice */}
+            {customerNotice && (
+              <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/50 text-xs text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{customerNotice}</span>
+              </div>
+            )}
+
+            {/* Fast Batch Paste Box */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+              <label className="block text-xs font-semibold text-slate-200">
+                Nhập nhanh danh sách Zalo UID hoặc SĐT (mỗi dòng hoặc phân tách bằng dấu phẩy):
+              </label>
+              <textarea
+                rows={3}
+                placeholder="vd: 5641430423293988497&#10;6406781528072469298&#10;0912345678"
+                value={bulkUidInput}
+                onChange={(e) => setBulkUidInput(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-2.5 text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-blue-500"
+              />
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Hành động:</span>
+                  <select
+                    value={bulkTargetAction}
+                    onChange={(e: any) => setBulkTargetAction(e.target.value)}
+                    className="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1 focus:outline-none"
+                  >
+                    <option value="blocked">🚫 Đưa vào Danh sách Chặn (Blacklist)</option>
+                    <option value="potential">⭐ Đặt làm Khách Tiềm Năng</option>
+                    <option value="standard">👥 Bỏ phân loại (Về thường)</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleProcessBulkUids}
+                  disabled={isProcessingBulkCustomer || !bulkUidInput.trim()}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  {isProcessingBulkCustomer ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>Áp Dụng Danh Sách</span>
+                </button>
+              </div>
+            </div>
+
+            {/* List of members currently in this tab */}
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span>
+                  {blacklistModalTab === "blocked"
+                    ? `Danh sách thành viên đang bị chặn tiếp thị (${members.filter((m) => m.customer_status === "blocked").length}):`
+                    : `Danh sách khách hàng tiềm năng (${members.filter((m) => m.customer_status === "potential").length}):`}
+                </span>
+                <span className="text-[11px] text-slate-500">Bấm nút bên phải để gỡ bỏ</span>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto divide-y divide-slate-800/60 border border-slate-800 rounded-xl bg-slate-950/50">
+                {members.filter((m) => m.customer_status === blacklistModalTab).length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-500">
+                    Chưa có thành viên nào trong danh sách này.
+                  </div>
+                ) : (
+                  members
+                    .filter((m) => m.customer_status === blacklistModalTab)
+                    .map((m) => (
+                      <div key={m.zalo_id} className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-850/40">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={m.avatar || "https://s160-ava-talk.zadn.vn/default"}
+                            alt=""
+                            className="w-7 h-7 rounded-full object-cover border border-slate-700 shrink-0"
+                            onError={(e: any) => { e.target.src = "https://s160-ava-talk.zadn.vn/default"; }}
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-slate-200 truncate">{m.display_name}</div>
+                            <div className="text-[10px] font-mono text-slate-500 truncate">UID: {m.zalo_id}</div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSetSingleCustomerStatus(m.zalo_id, "standard")}
+                          className="text-xs bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white px-2.5 py-1 rounded-lg border border-slate-700 transition cursor-pointer shrink-0"
+                          title="Gỡ bỏ khỏi danh sách này"
+                        >
+                          Gỡ bỏ
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-2 flex items-center justify-end border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => { setShowBlacklistModal(false); setCustomerNotice(""); }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
+              >
+                Đóng
               </button>
             </div>
           </div>

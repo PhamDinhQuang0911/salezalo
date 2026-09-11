@@ -23,6 +23,7 @@ import {
   getSettings,
   updateSettings,
   batchUpdateMembersFriendStatus,
+  batchUpdateCustomerStatus,
   invalidateMembersCache,
 } from "./firestore-db";
 import { processZaloData } from "./zalo-processor";
@@ -39,6 +40,8 @@ export async function clientGetStats() {
       filteredAdmins: stats.excluded_admins,
       friendsCount: stats.friends_count,
       campaignSentMembers: stats.campaign_sent_members,
+      potentialCount: (stats as any).potential_count || 0,
+      blockedCount: (stats as any).blocked_count || 0,
       totalCampaigns: stats.total_campaigns,
       totalAccounts: stats.total_accounts,
     },
@@ -160,19 +163,20 @@ export async function clientGetCampaigns() {
   return { success: true, campaigns };
 }
 
+export async function clientBatchUpdateCustomerStatus(zaloIds: string[], status: "potential" | "blocked" | "standard") {
+  const count = await batchUpdateCustomerStatus(zaloIds, status);
+  return { success: true, count, message: `Đã cập nhật phân loại cho ${count} thành viên` };
+}
+
 export async function clientSaveCampaign(id: string | null, data: any) {
   const effectiveGroupId = data.target_group_id && data.target_group_id !== "all" ? data.target_group_id : "";
-  const { total } = await getMembers({
-    groupId: effectiveGroupId || undefined,
-    role: "member",
-  });
-
-  const campaign = await saveCampaign(id, {
+  const campaignPayload: any = {
     name: data.name?.trim(),
     message_template: data.message_template?.trim(),
     target_group_id: effectiveGroupId || "all",
     account_phone: data.account_phone || "",
-    target_count: total,
+    friend_filter: data.friend_filter || "all",
+    customer_filter: data.customer_filter || "all",
     max_recipients: data.max_recipients !== undefined && !isNaN(parseInt(data.max_recipients)) ? parseInt(data.max_recipients) : 100,
     cooldown_days: data.cooldown_days !== undefined && !isNaN(parseInt(data.cooldown_days)) ? parseInt(data.cooldown_days) : 0,
     auto_friend_first: data.auto_friend_first ? 1 : 0,
@@ -184,9 +188,62 @@ export async function clientSaveCampaign(id: string | null, data: any) {
     media_type: data.media_type?.trim() || "",
     file_name: data.file_name?.trim() || "",
     cta_link: data.cta_link?.trim() || "",
+  };
+
+  const eligibleRecipients = await getCampaignRecipients(campaignPayload);
+  campaignPayload.target_count = eligibleRecipients.length;
+
+  const campaign = await saveCampaign(id, campaignPayload);
+  return { success: true, campaign };
+}
+
+export async function clientQuickUpdateCampaignAudience(campaignId: string, audienceData: {
+  target_group_id?: string;
+  friend_filter?: string;
+  customer_filter?: string;
+  max_recipients?: number;
+  cooldown_days?: number;
+  auto_friend_first?: number;
+}) {
+  const existing = await getCampaignById(campaignId);
+  if (!existing) {
+    throw new Error("Không tìm thấy chiến dịch");
+  }
+
+  const updatedConfig: any = {
+    ...existing,
+    ...audienceData,
+    target_group_id: audienceData.target_group_id && audienceData.target_group_id !== "all" ? audienceData.target_group_id : "all",
+    friend_filter: audienceData.friend_filter !== undefined ? audienceData.friend_filter : (existing.friend_filter || "all"),
+    customer_filter: audienceData.customer_filter !== undefined ? audienceData.customer_filter : (existing.customer_filter || "all"),
+    max_recipients: audienceData.max_recipients !== undefined ? Number(audienceData.max_recipients) : (existing.max_recipients || 100),
+    cooldown_days: audienceData.cooldown_days !== undefined ? Number(audienceData.cooldown_days) : (existing.cooldown_days || 0),
+    auto_friend_first: audienceData.auto_friend_first !== undefined ? (audienceData.auto_friend_first ? 1 : 0) : (existing.auto_friend_first || 0),
+  };
+
+  const eligibleRecipients = await getCampaignRecipients(updatedConfig);
+  updatedConfig.target_count = eligibleRecipients.length;
+
+  const saved = await saveCampaign(campaignId, {
+    target_group_id: updatedConfig.target_group_id,
+    friend_filter: updatedConfig.friend_filter,
+    customer_filter: updatedConfig.customer_filter,
+    max_recipients: updatedConfig.max_recipients,
+    cooldown_days: updatedConfig.cooldown_days,
+    auto_friend_first: updatedConfig.auto_friend_first,
+    target_count: eligibleRecipients.length,
   });
 
-  return { success: true, campaign };
+  return { success: true, campaign: saved, recipientCount: eligibleRecipients.length };
+}
+
+export async function clientCalculateCampaignRecipients(campaignConfig: any) {
+  const recipients = await getCampaignRecipients(campaignConfig);
+  return {
+    success: true,
+    count: recipients.length,
+    recipients: recipients.slice(0, 10),
+  };
 }
 
 export async function clientDeleteCampaign(id: string) {
