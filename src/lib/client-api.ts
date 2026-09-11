@@ -23,13 +23,26 @@ import {
   getSettings,
   updateSettings,
   batchUpdateMembersFriendStatus,
+  invalidateMembersCache,
 } from "./firestore-db";
 import { processZaloData } from "./zalo-processor";
 
 
 export async function clientGetStats() {
   const stats = await getStats();
-  return { success: true, stats };
+  return {
+    success: true,
+    stats: {
+      ...stats,
+      totalGroups: stats.total_groups,
+      targetMembers: stats.filtered_members,
+      filteredAdmins: stats.excluded_admins,
+      friendsCount: stats.friends_count,
+      campaignSentMembers: stats.campaign_sent_members,
+      totalCampaigns: stats.total_campaigns,
+      totalAccounts: stats.total_accounts,
+    },
+  };
 }
 
 export async function clientGetAccounts() {
@@ -103,8 +116,8 @@ export async function clientDeleteGroup(groupId: string) {
   return { success: true, message: "Đã xóa nhóm" };
 }
 
-export async function clientGetMembers(filter: any) {
-  const result = await getMembers(filter);
+export async function clientGetMembers(filter: any, forceRefresh = false) {
+  const result = await getMembers(filter, forceRefresh);
   return {
     success: true,
     members: result.members,
@@ -317,6 +330,7 @@ export async function clientTriggerScrape(data: {
   // If n8n responded with the scraped group/member dataset directly (via Respond to Webhook or When Last Node Finishes)
   if (responseData && (responseData.memberIds || responseData.response || (Array.isArray(responseData) && responseData.length > 0))) {
     const importResult = await processZaloData(responseData);
+    invalidateMembersCache();
     return {
       success: true,
       message: `Đã cào và lưu thành công ${importResult.savedMembers} thành viên vào Firebase Firestore (loại bỏ ${importResult.excludedAdmins} Trưởng/Phó nhóm)!`,
@@ -601,7 +615,9 @@ export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOv
 }
 
 export async function clientImportZaloData(payload: any) {
-  return await processZaloData(payload);
+  const result = await processZaloData(payload);
+  invalidateMembersCache();
+  return result;
 }
 
 export async function clientTriggerSendFriendRequests(params: {

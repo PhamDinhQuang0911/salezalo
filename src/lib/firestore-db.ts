@@ -155,6 +155,16 @@ export async function deleteGroup(groupId: string) {
   return true;
 }
 
+// ================= HIGH-PERFORMANCE IN-MEMORY CACHE =================
+let cachedMembers: any[] | null = null;
+let lastMembersFetchTime = 0;
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+export function invalidateMembersCache() {
+  cachedMembers = null;
+  lastMembersFetchTime = 0;
+}
+
 // ================= MEMBERS =================
 export interface MemberFilter {
   groupId?: string;
@@ -168,10 +178,15 @@ export interface MemberFilter {
   limit?: number;
 }
 
-export async function getMembers(filter: MemberFilter = {}) {
-  const membersCol = collection(firestore, collections.members);
-  const snap = await getDocs(membersCol);
-  let allMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+export async function getMembers(filter: MemberFilter = {}, forceRefresh = false) {
+  const now = Date.now();
+  if (forceRefresh || !cachedMembers || now - lastMembersFetchTime > CACHE_TTL_MS) {
+    const membersCol = collection(firestore, collections.members);
+    const snap = await getDocs(membersCol);
+    cachedMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+    lastMembersFetchTime = now;
+  }
+  let allMembers = [...cachedMembers];
 
   // In-memory filtering for rich multi-criteria filters
   if (filter.groupId && filter.groupId !== "all" && filter.groupId !== "") {
@@ -262,12 +277,19 @@ export async function updateMember(zaloId: string, updates: any) {
     ...updates,
     updated_at: new Date().toISOString(),
   });
+  if (cachedMembers) {
+    const idx = cachedMembers.findIndex((m) => String(m.id || m.zalo_id) === String(zaloId));
+    if (idx !== -1) {
+      cachedMembers[idx] = { ...cachedMembers[idx], ...updates, updated_at: new Date().toISOString() };
+    }
+  }
   return true;
 }
 
 export async function deleteMember(zaloId: string) {
   const docRef = doc(firestore, collections.members, String(zaloId));
   await deleteDoc(docRef);
+  invalidateMembersCache();
   return true;
 }
 
@@ -281,6 +303,7 @@ export async function deleteMembers(zaloIds: string[]) {
     }
     await batch.commit();
   }
+  invalidateMembersCache();
   return true;
 }
 
@@ -300,6 +323,7 @@ export async function deleteMembersByGroup(groupId: string) {
   if (toDeleteIds.length > 0) {
     await deleteMembers(toDeleteIds);
   }
+  invalidateMembersCache();
   return toDeleteIds.length;
 }
 
@@ -310,6 +334,7 @@ export async function deleteAllMembers() {
   if (allIds.length > 0) {
     await deleteMembers(allIds);
   }
+  invalidateMembersCache();
   return allIds.length;
 }
 
@@ -429,14 +454,22 @@ export async function updateSettings(data: Record<string, string>) {
 
 // ================= STATS =================
 export async function getStats() {
+  const now = Date.now();
+  const needFetchMembers = !cachedMembers || now - lastMembersFetchTime > CACHE_TTL_MS;
+
   const [membersSnap, groupsSnap, campaignsSnap, accountsSnap] = await Promise.all([
-    getDocs(collection(firestore, collections.members)),
+    needFetchMembers ? getDocs(collection(firestore, collections.members)) : null,
     getDocs(collection(firestore, collections.groups)),
     getDocs(collection(firestore, collections.campaigns)),
     getDocs(collection(firestore, collections.accounts)),
   ]);
 
-  const members = membersSnap.docs.map((d) => d.data());
+  if (membersSnap) {
+    cachedMembers = membersSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+    lastMembersFetchTime = now;
+  }
+
+  const members = cachedMembers || [];
   const regularMembers = members.filter((m) => m.is_admin === 0 && m.role === "member");
   const excludedAdmins = members.filter((m) => m.is_admin === 1 || m.role !== "member");
   const friendsCount = members.filter((m) => m.is_friend === 1);
@@ -474,6 +507,7 @@ export async function batchUpdateMembersFriendStatus(updates: { zaloId: string; 
     updatedCount += chunk.length;
   }
 
+  invalidateMembersCache();
   return updatedCount;
 }
 

@@ -328,7 +328,7 @@ export default function Home() {
     }
   };
 
-  const fetchMembers = async (page = 1) => {
+  const fetchMembers = async (page = 1, forceRefresh = false) => {
     setIsLoadingMembers(true);
     try {
       const data = await clientGetMembers({
@@ -341,7 +341,7 @@ export default function Home() {
         sortBy: memberSortBy,
         page,
         limit: 30,
-      });
+      }, forceRefresh);
       if (data.success) {
         setMembers(data.members || []);
         setMemberPagination(data.pagination || { total: 0, page: 1, limit: 30, totalPages: 1 });
@@ -1530,7 +1530,7 @@ export default function Home() {
                       </div>
                     </div>
                     <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold shrink-0 ${selectedGroupId === "" ? "bg-blue-500 text-white" : "bg-slate-800 text-slate-300"}`}>
-                      {stats.targetMembers} người
+                      {stats.targetMembers ?? stats.filtered_members ?? 0} người
                     </span>
                   </button>
 
@@ -1603,7 +1603,7 @@ export default function Home() {
                         <p className="text-xs text-slate-400">
                           {selectedGroupObj
                             ? `Nhóm UID: ${selectedGroupObj.group_id} • Có ${selectedGroupObj.filtered_member_count} thành viên sạch (${selectedGroupObj.admin_count} Trưởng/Phó nhóm đã bị lọc)`
-                            : `Tổng số ${stats.targetMembers} thành viên sạch trên toàn bộ hệ thống`}
+                            : `Tổng số ${stats.targetMembers ?? stats.filtered_members ?? 0} thành viên sạch trên toàn bộ hệ thống`}
                         </p>
                       </div>
                     </div>
@@ -1788,6 +1788,12 @@ export default function Home() {
                       <span>
                         Tổng số: <strong className="text-white">{memberPagination.total}</strong> thành viên
                       </span>
+                      {isLoadingMembers && (
+                        <span className="text-[11px] text-blue-400 flex items-center gap-1.5 animate-pulse font-medium">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <span>Đang cập nhật...</span>
+                        </span>
+                      )}
                       <div className="hidden md:flex items-center gap-3 text-[11px] text-slate-400 pl-4 border-l border-slate-800">
                         <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3 text-emerald-400" /> Đã gửi tin</span>
                         <span className="flex items-center gap-1"><UserPlus className="w-3 h-3 text-blue-400" /> Bạn bè</span>
@@ -1796,8 +1802,17 @@ export default function Home() {
                         <span className="flex items-center gap-1"><ShieldAlert className="w-3 h-3 text-red-400" /> Chặn tin lạ</span>
                       </div>
                     </div>
-                    <div>
-                      Trang {memberPagination.page} / {memberPagination.totalPages || 1}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => fetchMembers(memberPagination.page, true)}
+                        className="p-1 text-slate-400 hover:text-blue-400 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                        title="Làm mới lại dữ liệu từ Cloud Firestore"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingMembers ? "animate-spin text-blue-400" : ""}`} />
+                      </button>
+                      <span>
+                        Trang {memberPagination.page} / {memberPagination.totalPages || 1}
+                      </span>
                     </div>
                   </div>
 
@@ -1827,7 +1842,7 @@ export default function Home() {
                     </div>
                   )}
 
-                  {isLoadingMembers ? (
+                  {isLoadingMembers && members.length === 0 ? (
                     <div className="p-12 text-center">
                       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
                       <p className="text-xs text-slate-400">Đang tải danh sách thành viên...</p>
@@ -3093,7 +3108,7 @@ export default function Home() {
                               : "text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          Tất cả ({stats.targetMembers})
+                          Tất cả ({stats.targetMembers ?? stats.filtered_members ?? 0})
                         </button>
                         <button
                           type="button"
@@ -3117,7 +3132,7 @@ export default function Home() {
                       <div className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 flex items-center justify-between shadow-inner">
                         <span className="truncate text-slate-200 font-normal">Toàn bộ thành viên sạch các nhóm</span>
                         <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/15 px-2 py-0.5 rounded-md ml-2 shrink-0">
-                          {stats.targetMembers} người
+                          {stats.targetMembers ?? stats.filtered_members ?? 0} người
                         </span>
                       </div>
                     ) : (
