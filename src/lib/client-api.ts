@@ -23,8 +23,6 @@ import {
   batchUpdateMembersFriendStatus,
 } from "./firestore-db";
 import { processZaloData } from "./zalo-processor";
-import { storage } from "./firebase";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 
 
 export async function clientGetStats() {
@@ -151,6 +149,10 @@ export async function clientSaveCampaign(id: string | null, data: any) {
     delay_seconds: parseInt(data.delay_seconds) || 15,
     image_url: data.image_url?.trim() || "",
     video_url: data.video_url?.trim() || "",
+    document_url: data.document_url?.trim() || "",
+    media_url: data.media_url?.trim() || "",
+    media_type: data.media_type?.trim() || "",
+    file_name: data.file_name?.trim() || "",
     cta_link: data.cta_link?.trim() || "",
   });
 
@@ -199,6 +201,12 @@ export async function clientTriggerScrape(data: {
 
   if (!scrapeUrl || !scrapeUrl.startsWith("http")) {
     throw new Error("Chưa thiết lập URL n8n Scrape Webhook cho tài khoản này.");
+  }
+
+  // Tự động chuyển đổi nếu người dùng nhập nhầm URL test (/webhook-test/) sang URL production (/webhook/)
+  if (scrapeUrl.includes("/webhook-test/")) {
+    console.warn("Tự động chuyển đổi URL test sang URL production:", scrapeUrl);
+    scrapeUrl = scrapeUrl.replace("/webhook-test/", "/webhook/");
   }
 
   const controller = new AbortController();
@@ -274,6 +282,12 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     throw new Error(`Chưa cấu hình URL n8n Send Webhook cho ${campaign.account_phone ? `tài khoản ${campaign.account_phone}` : "hệ thống"}.`);
   }
 
+  // Tự động chuyển đổi nếu người dùng nhập nhầm URL test (/webhook-test/) sang URL production (/webhook/)
+  if (sendWebhookUrl.includes("/webhook-test/")) {
+    console.warn("Tự động chuyển đổi URL test sang URL production:", sendWebhookUrl);
+    sendWebhookUrl = sendWebhookUrl.replace("/webhook-test/", "/webhook/");
+  }
+
   const recipients = await getCampaignRecipients(campaign);
   if (recipients.length === 0) {
     throw new Error(
@@ -283,9 +297,11 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     );
   }
 
-  const isVideo = Boolean(campaign.video_url);
-  const isImage = Boolean(campaign.image_url) && !isVideo;
-  const mediaType = isVideo ? "video" : isImage ? "image" : "none";
+  const mediaUrl = campaign.media_url || campaign.document_url || campaign.image_url || campaign.video_url || "";
+  const isVideo = campaign.media_type === "video" || Boolean(campaign.video_url);
+  const isDoc = campaign.media_type === "document" || Boolean(campaign.document_url);
+  const isImage = (campaign.media_type === "image" || Boolean(campaign.image_url)) && !isVideo && !isDoc;
+  const mediaType = isVideo ? "video" : isDoc ? "document" : isImage ? "image" : "none";
 
   const payload = {
     campaignId: campaign.id,
@@ -294,8 +310,11 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     message: {
       text: campaign.message_template,
       mediaType: mediaType,
-      imageUrl: campaign.image_url || "",
-      videoUrl: campaign.video_url || "",
+      mediaUrl: mediaUrl,
+      fileName: campaign.file_name || "",
+      imageUrl: isImage ? mediaUrl : (campaign.image_url || ""),
+      videoUrl: isVideo ? mediaUrl : (campaign.video_url || ""),
+      documentUrl: isDoc ? mediaUrl : "",
       ctaLink: campaign.cta_link || "",
     },
     settings: {
@@ -353,64 +372,105 @@ export interface UploadMediaResult {
   name: string;
   size: number;
   type: string;
-  mediaType: "image" | "video";
+  mediaType: "image" | "video" | "document";
   base64?: string;
 }
 
 export async function uploadMediaFile(file: File): Promise<UploadMediaResult> {
   const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
-  const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.name);
+  const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(file.name);
+  const isDoc =
+    /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|zip|rar)$/i.test(file.name) ||
+    file.type.includes("pdf") ||
+    file.type.includes("word") ||
+    file.type.includes("document") ||
+    file.type.includes("sheet") ||
+    file.type.includes("presentation");
 
-  if (!isImage && !isVideo) {
-    throw new Error("Định dạng tệp không được hỗ trợ. Vui lòng chọn ảnh (JPG, PNG, WebP) hoặc video (MP4, WebM).");
+  if (!isImage && !isVideo && !isDoc) {
+    throw new Error("Định dạng tệp không được hỗ trợ. Vui lòng chọn ảnh (JPG, PNG), video (MP4, WebM) hoặc tài liệu (PDF, Word, Excel).");
   }
 
-  // Size limit validation: Video < 15MB, Image < 5MB
-  if (isVideo && file.size > 15 * 1024 * 1024) {
-    throw new Error(`Video quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn video dưới 15MB để đảm bảo Zalo và n8n gửi mượt mà không bị nghẽn mạng.`);
+  // Size limit validation: Video < 50MB, Image < 20MB, Document < 50MB
+  if (isVideo && file.size > 50 * 1024 * 1024) {
+    throw new Error(`Video quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn video dưới 50MB để đảm bảo Zalo gửi mượt mà.`);
   }
-  if (isImage && file.size > 5 * 1024 * 1024) {
-    throw new Error(`Hình ảnh quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn ảnh dưới 5MB.`);
+  if (isImage && file.size > 20 * 1024 * 1024) {
+    throw new Error(`Hình ảnh quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn ảnh dưới 20MB.`);
+  }
+  if (isDoc && file.size > 50 * 1024 * 1024) {
+    throw new Error(`Tài liệu quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn tệp tài liệu dưới 50MB.`);
   }
 
-  const mediaType: "image" | "video" = isVideo ? "video" : "image";
-  const ext = file.name.split(".").pop() || (isVideo ? "mp4" : "jpg");
-  const fileName = `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`;
-  const storagePath = `campaign_media/${fileName}`;
+  // Generate Base64 for instant local preview in browser if image/video
+  let base64 = "";
+  if (isImage || isVideo) {
+    try {
+      base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string) || "");
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(file);
+      });
+    } catch (e) {}
+  }
 
-  // Generate Base64 for instant local preview and fallback
-  const base64 = await new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => resolve("");
-    reader.readAsDataURL(file);
-  });
+  let publicUrl = "";
 
+  // Phương thức 1: Tải trực tiếp lên Litterbox (Catbox) - Hỗ trợ CORS *, miễn phí, hỗ trợ file đến 1GB
   try {
-    const storageRef = ref(storage, storagePath);
-    const snap = await uploadBytesResumable(storageRef, file, {
-      contentType: file.type || (isVideo ? "video/mp4" : "image/jpeg"),
+    const litterForm = new FormData();
+    litterForm.append("reqtype", "fileupload");
+    litterForm.append("time", "72h");
+    litterForm.append("fileToUpload", file);
+
+    const litterRes = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
+      method: "POST",
+      body: litterForm,
     });
-    const url = await getDownloadURL(snap.ref);
-    return {
-      url,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      mediaType,
-      base64,
-    };
-  } catch (err: any) {
-    console.warn("Firebase Storage upload fallback to Data URL Base64:", err);
-    return {
-      url: base64,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      mediaType,
-      base64,
-    };
+
+    const litterUrl = (await litterRes.text()).trim();
+    if (litterUrl.startsWith("http")) {
+      publicUrl = litterUrl;
+    }
+  } catch (err) {
+    console.warn("Litterbox upload failed, trying fallback:", err);
   }
+
+  // Phương thức 2: Fallback qua TmpFiles nếu Litterbox gặp sự cố
+  if (!publicUrl) {
+    try {
+      const tmpForm = new FormData();
+      tmpForm.append("file", file);
+
+      const tmpRes = await fetch("https://tmpfiles.org/api/v1/upload", {
+        method: "POST",
+        body: tmpForm,
+      });
+
+      const tmpData = await tmpRes.json();
+      if (tmpData?.data?.url) {
+        publicUrl = tmpData.data.url.replace("tmpfiles.org/", "tmpfiles.org/dl/");
+      }
+    } catch (err) {
+      console.warn("TmpFiles upload failed:", err);
+    }
+  }
+
+  if (!publicUrl) {
+    throw new Error("Không thể tải tệp lên máy chủ lưu trữ. Vui lòng kiểm tra kết nối mạng và thử lại.");
+  }
+
+  const mediaType: "image" | "video" | "document" = isVideo ? "video" : isDoc ? "document" : "image";
+
+  return {
+    url: publicUrl,
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    mediaType,
+    base64: base64 || (isImage ? publicUrl : ""),
+  };
 }
 
 export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOverride?: string) {
@@ -428,6 +488,12 @@ export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOv
 
   if (!syncWebhookUrl.startsWith("http")) {
     throw new Error("Chưa cấu hình URL Webhook đồng bộ bạn bè trên n8n.");
+  }
+
+  // Tự động chuyển đổi nếu người dùng nhập nhầm URL test (/webhook-test/) sang URL production (/webhook/)
+  if (syncWebhookUrl.includes("/webhook-test/")) {
+    console.warn("Tự động chuyển đổi URL test sang URL production:", syncWebhookUrl);
+    syncWebhookUrl = syncWebhookUrl.replace("/webhook-test/", "/webhook/");
   }
 
   const controller = new AbortController();

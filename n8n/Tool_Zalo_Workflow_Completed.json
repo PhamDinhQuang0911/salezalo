@@ -6,7 +6,9 @@
         "httpMethod": "POST",
         "path": "zalo-scrape",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "allowedOrigins": "*"
+        }
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -115,7 +117,24 @@
     {
       "parameters": {
         "respondWith": "firstIncomingItem",
-        "options": {}
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, Authorization"
+              }
+            ]
+          }
+        }
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
@@ -131,7 +150,9 @@
         "httpMethod": "POST",
         "path": "zalo-send-campaign",
         "responseMode": "onReceived",
-        "options": {}
+        "options": {
+          "allowedOrigins": "*"
+        }
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -145,7 +166,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : 'none'));\nconst imageUrl = body.message?.imageUrl || '';\nconst videoUrl = body.message?.videoUrl || '';\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaLink) {\n    personalized += '\\n\\n👉 Xem thêm tại: ' + ctaLink;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      imageUrl: imageUrl,\n      videoUrl: videoUrl\n    }\n  };\n});"
+        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : (body.message?.documentUrl ? 'document' : 'none')));\nconst mediaUrl = body.message?.mediaUrl || body.message?.documentUrl || body.message?.imageUrl || body.message?.videoUrl || '';\nconst imageUrl = body.message?.imageUrl || (mediaType === 'image' ? mediaUrl : '');\nconst videoUrl = body.message?.videoUrl || (mediaType === 'video' ? mediaUrl : '');\nconst documentUrl = body.message?.documentUrl || (mediaType === 'document' ? mediaUrl : '');\nconst fileName = body.message?.fileName || '';\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaLink) {\n    personalized += '\\n\\n👉 Xem thêm tại: ' + ctaLink;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      mediaUrl: mediaUrl,\n      imageUrl: imageUrl,\n      videoUrl: videoUrl,\n      documentUrl: documentUrl,\n      fileName: fileName\n    }\n  };\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -257,7 +278,7 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        1420,
+        1640,
         150
       ],
       "id": "node-wait-antispam",
@@ -346,202 +367,12 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c-has-img",
-              "leftValue": "={{ $json.imageUrl }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        680,
-        150
-      ],
-      "id": "node-if-has-image",
-      "name": "Kiểm Tra Có Ảnh Không?"
-    },
-    {
-      "parameters": {
-        "url": "={{ $json.imageUrl }}",
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file",
-              "outputPropertyName": "data"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        920,
-        50
-      ],
-      "id": "node-http-download-image",
-      "name": "Tải Ảnh Đính Kèm",
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "useSession": true,
-        "connectToId": "717682179432150574",
-        "noticeUserId": "",
-        "noticeUserIdSupport": "",
-        "threadType": 0,
-        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
-        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || '' }}",
-        "messageFormat": "plain",
-        "urgency": 0,
-        "sendTypingEvent": true,
-        "attachmentType": "binary",
-        "attachmentMode": "image",
-        "binaryPropertyName": "data",
-        "fileName": "",
-        "mentions": {},
-        "reaction": {},
-        "quote": {},
-        "styles": {},
-        "ttl": 0
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        1160,
-        50
-      ],
-      "id": "node-zalo-send-image-msg",
-      "name": "Gửi Tin Nhắn Kèm Ảnh",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c-has-video",
-              "leftValue": "={{ $json.videoUrl }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        920,
-        250
-      ],
-      "id": "node-if-has-video",
-      "name": "Kiểm Tra Có Video Không?"
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "sendVideo",
-        "useSession": true,
-        "connectToId": "717682179432150574",
-        "threadType": 0,
-        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
-        "videoUrl": "={{ $json.videoUrl }}",
-        "thumbnailUrl": "={{ $json.imageUrl || '' }}"
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        1160,
-        180
-      ],
-      "id": "node-zalo-send-video",
-      "name": "Gửi Video Zalo",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "useSession": true,
-        "connectToId": "717682179432150574",
-        "noticeUserId": "",
-        "noticeUserIdSupport": "",
-        "threadType": 0,
-        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
-        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || '' }}",
-        "messageFormat": "plain",
-        "urgency": 0,
-        "sendTypingEvent": true,
-        "attachmentType": "none",
-        "attachmentMode": "auto",
-        "binaryPropertyName": "data",
-        "fileName": "",
-        "mentions": {},
-        "reaction": {},
-        "quote": {},
-        "styles": {},
-        "ttl": 0
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        1160,
-        310
-      ],
-      "id": "node-zalo-send-text-msg",
-      "name": "Gửi Tin Nhắn Văn Bản",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
         "path": "zalo-sync-friends",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "allowedOrigins": "*"
+        }
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -570,7 +401,24 @@
     {
       "parameters": {
         "respondWith": "firstIncomingItem",
-        "options": {}
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, Authorization"
+              }
+            ]
+          }
+        }
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
@@ -626,6 +474,198 @@
       },
       "executeOnce": true,
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-video",
+              "leftValue": "={{ $json.videoUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        150
+      ],
+      "id": "node-if-has-video",
+      "name": "Kiểm Tra Có Phải Video?"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendVideo",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "videoUrl": "={{ $json.videoUrl || $json.mediaUrl }}",
+        "thumbnailUrl": "={{ $json.imageUrl || '' }}"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        950,
+        40
+      ],
+      "id": "node-zalo-send-video",
+      "name": "Gửi Video Zalo",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-file-or-img",
+              "leftValue": "={{ $json.imageUrl || $json.documentUrl || $json.mediaUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        950,
+        230
+      ],
+      "id": "node-if-has-file",
+      "name": "Kiểm Tra Có Ảnh Hoặc File?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imageUrl || $json.documentUrl || $json.mediaUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1180,
+        150
+      ],
+      "id": "node-http-download-file",
+      "name": "Tải Tệp / Ảnh Đính Kèm",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || '' }}",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "binary",
+        "attachmentMode": "auto",
+        "binaryPropertyName": "data",
+        "fileName": "={{ $json.fileName || '' }}",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        150
+      ],
+      "id": "node-zalo-send-file-or-image",
+      "name": "Gửi Tin Nhắn Kèm Tệp & Ảnh",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || '' }}",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "none",
+        "attachmentMode": "auto",
+        "binaryPropertyName": "data",
+        "fileName": "",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        310
+      ],
+      "id": "node-zalo-send-text-msg",
+      "name": "Gửi Tin Nhắn Văn Bản",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -726,7 +766,7 @@
         ],
         [
           {
-            "node": "Kiểm Tra Có Ảnh Không?",
+            "node": "Kiểm Tra Có Phải Video?",
             "type": "main",
             "index": 0
           }
@@ -748,7 +788,7 @@
       "main": [
         [
           {
-            "node": "Kiểm Tra Có Ảnh Không?",
+            "node": "Kiểm Tra Có Phải Video?",
             "type": "main",
             "index": 0
           }
@@ -782,64 +822,6 @@
         [
           {
             "node": "Chuẩn Bị Dữ Liệu Cào & Đối Soát Bạn Bè",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kiểm Tra Có Ảnh Không?": {
-      "main": [
-        [
-          {
-            "node": "Tải Ảnh Đính Kèm",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Kiểm Tra Có Video Không?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Tải Ảnh Đính Kèm": {
-      "main": [
-        [
-          {
-            "node": "Gửi Tin Nhắn Kèm Ảnh",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Kiểm Tra Có Video Không?": {
-      "main": [
-        [
-          {
-            "node": "Gửi Video Zalo",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Gửi Tin Nhắn Văn Bản",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gửi Tin Nhắn Kèm Ảnh": {
-      "main": [
-        [
-          {
-            "node": "Giãn Cách Chống Spam",
             "type": "main",
             "index": 0
           }
@@ -917,6 +899,64 @@
         [
           {
             "node": "Tổng Hợp Trạng Thái Bạn Bè",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm Tra Có Phải Video?": {
+      "main": [
+        [
+          {
+            "node": "Gửi Video Zalo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kiểm Tra Có Ảnh Hoặc File?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm Tra Có Ảnh Hoặc File?": {
+      "main": [
+        [
+          {
+            "node": "Tải Tệp / Ảnh Đính Kèm",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gửi Tin Nhắn Văn Bản",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tải Tệp / Ảnh Đính Kèm": {
+      "main": [
+        [
+          {
+            "node": "Gửi Tin Nhắn Kèm Tệp & Ảnh",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi Tin Nhắn Kèm Tệp & Ảnh": {
+      "main": [
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
             "type": "main",
             "index": 0
           }

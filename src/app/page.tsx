@@ -37,6 +37,7 @@ import {
   Smartphone,
   Play,
   CheckSquare,
+  FileText,
 } from "lucide-react";
 import {
   clientGetStats,
@@ -116,10 +117,7 @@ export default function Home() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [isDeletingMembers, setIsDeletingMembers] = useState(false);
 
-  // Campaigns Tab (Create & Edit & Delete)
-  const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
-  const [campaignForm, setCampaignForm] = useState({
+  const initialCampaignForm = {
     name: "",
     message_template: "",
     target_group_id: "all",
@@ -130,18 +128,27 @@ export default function Home() {
     delay_seconds: 15,
     image_url: "",
     video_url: "",
+    document_url: "",
+    media_url: "",
+    media_type: "none",
+    file_name: "",
     cta_link: "",
-  });
+  };
+
+  // Campaigns Tab (Create & Edit & Delete)
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [editingCampaignId, setEditingCampaignId] = useState<number | null>(null);
+  const [campaignForm, setCampaignForm] = useState(initialCampaignForm);
   const [isSubmittingCampaign, setIsSubmittingCampaign] = useState(false);
   const [campaignNotice, setCampaignNotice] = useState("");
 
-  // Media Direct Upload for Campaign (Images & Low-size Videos)
+  // Media Direct Upload for Campaign (Images, Videos, Documents/PDF/Word)
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [mediaUploadError, setMediaUploadError] = useState("");
   const [uploadedMediaInfo, setUploadedMediaInfo] = useState<{
     name: string;
     size: number;
-    mediaType: "image" | "video";
+    mediaType: "image" | "video" | "document";
     previewUrl: string;
   } | null>(null);
 
@@ -515,19 +522,7 @@ export default function Home() {
       if (data.success) {
         setCampaignNotice(isEditing ? "Đã cập nhật chiến dịch thành công!" : "Đã tạo chiến dịch thành công!");
         setEditingCampaignId(null);
-        setCampaignForm({
-          name: "",
-          message_template: "",
-          target_group_id: "all",
-          account_phone: "",
-          max_recipients: 100,
-          cooldown_days: 10,
-          auto_friend_first: 0,
-          delay_seconds: 15,
-          image_url: "",
-          video_url: "",
-          cta_link: "",
-        });
+        setCampaignForm(initialCampaignForm);
         fetchCampaigns();
         fetchStats();
       } else {
@@ -540,7 +535,7 @@ export default function Home() {
     }
   };
 
-  const handleMediaFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, expectedType?: "image" | "video") => {
+  const handleMediaFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, expectedType?: "image" | "video" | "document") => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = ""; // Reset input so user can re-pick same file if desired
@@ -561,13 +556,32 @@ export default function Home() {
         setCampaignForm((prev) => ({
           ...prev,
           image_url: result.url,
-          video_url: "", // clear video if image selected
+          media_url: result.url,
+          media_type: "image",
+          file_name: result.name,
+          video_url: "",
+          document_url: "",
         }));
-      } else {
+      } else if (result.mediaType === "video") {
         setCampaignForm((prev) => ({
           ...prev,
           video_url: result.url,
-          image_url: "", // clear image if video selected
+          media_url: result.url,
+          media_type: "video",
+          file_name: result.name,
+          image_url: "",
+          document_url: "",
+        }));
+      } else {
+        // Document: PDF, Word, Excel, etc.
+        setCampaignForm((prev) => ({
+          ...prev,
+          document_url: result.url,
+          media_url: result.url,
+          media_type: "document",
+          file_name: result.name,
+          image_url: "",
+          video_url: "",
         }));
       }
     } catch (err: any) {
@@ -585,6 +599,10 @@ export default function Home() {
       ...prev,
       image_url: "",
       video_url: "",
+      document_url: "",
+      media_url: "",
+      media_type: "none",
+      file_name: "",
     }));
   };
 
@@ -624,14 +642,21 @@ export default function Home() {
         name: "Hình ảnh đính kèm",
         size: 0,
         mediaType: "image",
-        previewUrl: c.image_url,
+        previewUrl: c.image_url || c.media_url,
       });
-    } else if (c.video_url) {
+    } else if (c.video_url || c.media_type === "video") {
       setUploadedMediaInfo({
-        name: "Video đính kèm",
+        name: c.file_name || "Video đính kèm",
         size: 0,
         mediaType: "video",
-        previewUrl: c.video_url,
+        previewUrl: c.video_url || c.media_url,
+      });
+    } else if (c.document_url || c.media_type === "document") {
+      setUploadedMediaInfo({
+        name: c.file_name || "Tài liệu đính kèm",
+        size: 0,
+        mediaType: "document",
+        previewUrl: c.document_url || c.media_url,
       });
     } else {
       setUploadedMediaInfo(null);
@@ -648,6 +673,10 @@ export default function Home() {
       delay_seconds: c.delay_seconds || 15,
       image_url: c.image_url || "",
       video_url: c.video_url || "",
+      document_url: c.document_url || "",
+      media_url: c.media_url || "",
+      media_type: c.media_type || "none",
+      file_name: c.file_name || "",
       cta_link: c.cta_link || "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -657,19 +686,7 @@ export default function Home() {
     setEditingCampaignId(null);
     setUploadedMediaInfo(null);
     setMediaUploadError("");
-    setCampaignForm({
-      name: "",
-      message_template: "",
-      target_group_id: "all",
-      account_phone: "",
-      max_recipients: 100,
-      cooldown_days: 10,
-      auto_friend_first: 0,
-      delay_seconds: 15,
-      image_url: "",
-      video_url: "",
-      cta_link: "",
-    });
+    setCampaignForm(initialCampaignForm);
   };
 
 
@@ -705,7 +722,13 @@ export default function Home() {
     setIsSavingSettings(true);
     setSettingsNotice("");
     try {
-      const data = await clientUpdateSettings(settings);
+      const sanitizedSettings = {
+        ...settings,
+        n8n_scrape_webhook: (settings.n8n_scrape_webhook || "").trim().replace("/webhook-test/", "/webhook/"),
+        n8n_send_webhook: (settings.n8n_send_webhook || "").trim().replace("/webhook-test/", "/webhook/"),
+      };
+      setSettings(sanitizedSettings);
+      const data = await clientUpdateSettings(sanitizedSettings);
       if (data.success) {
         setSettingsNotice("Đã lưu cấu hình thành công!");
       }
@@ -2007,15 +2030,16 @@ export default function Home() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* 3 Media Types: Image, Video, Document */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
                     {/* Col 1: Hình Ảnh */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
                       <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
                         <span className="flex items-center gap-1.5 text-cyan-400">
                           <ImageIcon className="w-3.5 h-3.5" />
                           <span>1. Hình Ảnh (Image)</span>
                         </span>
-                        <span className="text-[10px] text-slate-500">JPG, PNG &lt; 5MB</span>
+                        <span className="text-[10px] text-slate-500">JPG, PNG &lt; 10MB</span>
                       </label>
 
                       <div className="flex items-center gap-2">
@@ -2034,10 +2058,17 @@ export default function Home() {
 
                       <input
                         type="url"
-                        placeholder="Hoặc dán link ảnh: https://.../img.jpg"
+                        placeholder="Hoặc dán link: https://.../img.jpg"
                         value={campaignForm.image_url}
                         onChange={(e) => {
-                          setCampaignForm({ ...campaignForm, image_url: e.target.value, video_url: "" });
+                          setCampaignForm({
+                            ...campaignForm,
+                            image_url: e.target.value,
+                            media_url: e.target.value,
+                            media_type: "image",
+                            video_url: "",
+                            document_url: "",
+                          });
                           if (e.target.value) {
                             setUploadedMediaInfo({
                               name: "Link ảnh ngoài",
@@ -2054,13 +2085,13 @@ export default function Home() {
                     </div>
 
                     {/* Col 2: Video */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
                       <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
                         <span className="flex items-center gap-1.5 text-rose-400">
                           <Video className="w-3.5 h-3.5" />
                           <span>2. Video Nhẹ (Dung lượng thấp)</span>
                         </span>
-                        <span className="text-[10px] text-amber-400 font-semibold">Tối đa 15MB</span>
+                        <span className="text-[10px] text-amber-400 font-semibold">&lt; 15MB</span>
                       </label>
 
                       <div className="flex items-center gap-2">
@@ -2079,10 +2110,17 @@ export default function Home() {
 
                       <input
                         type="url"
-                        placeholder="Hoặc dán link video: https://.../video.mp4"
+                        placeholder="Hoặc dán link: https://.../video.mp4"
                         value={campaignForm.video_url}
                         onChange={(e) => {
-                          setCampaignForm({ ...campaignForm, video_url: e.target.value, image_url: "" });
+                          setCampaignForm({
+                            ...campaignForm,
+                            video_url: e.target.value,
+                            media_url: e.target.value,
+                            media_type: "video",
+                            image_url: "",
+                            document_url: "",
+                          });
                           if (e.target.value) {
                             setUploadedMediaInfo({
                               name: "Link video ngoài",
@@ -2098,47 +2136,99 @@ export default function Home() {
                       />
                     </div>
 
-                    {/* Col 3: Link Web / CTA */}
-                    <div className="space-y-2">
+                    {/* Col 3: Tài Liệu PDF, Word */}
+                    <div className="space-y-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
                       <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-blue-400">
-                          <LinkIcon className="w-3.5 h-3.5" />
-                          <span>3. Nút Kêu Gọi / CTA (Tuỳ chọn)</span>
+                        <span className="flex items-center gap-1.5 text-amber-400">
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>3. Tài Liệu (PDF / Word / Doc)</span>
                         </span>
-                        <span className="text-[10px] text-slate-500">Website URL</span>
+                        <span className="text-[10px] text-emerald-400 font-semibold">&lt; 25MB</span>
                       </label>
 
-                      <div className="pt-0.5">
-                        <input
-                          type="url"
-                          placeholder="https://yourlandingpage.com"
-                          value={campaignForm.cta_link}
-                          onChange={(e) => setCampaignForm({ ...campaignForm, cta_link: e.target.value })}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-                        />
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 text-slate-200 hover:text-white border border-slate-700 hover:border-amber-500/50 rounded-xl px-3 py-2 text-xs cursor-pointer transition-all shadow-sm">
+                          <UploadCloud className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Chọn PDF / Word Từ Máy</span>
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                            className="hidden"
+                            onChange={(e) => handleMediaFileUpload(e, "document")}
+                            disabled={isUploadingMedia}
+                          />
+                        </label>
                       </div>
-                      <p className="text-[10px] text-slate-500 leading-tight">
-                        Tự động chèn link kêu gọi hành động vào cuối tin nhắn.
-                      </p>
+
+                      <input
+                        type="url"
+                        placeholder="Hoặc dán link file: https://.../file.pdf"
+                        value={campaignForm.document_url}
+                        onChange={(e) => {
+                          setCampaignForm({
+                            ...campaignForm,
+                            document_url: e.target.value,
+                            media_url: e.target.value,
+                            media_type: "document",
+                            image_url: "",
+                            video_url: "",
+                          });
+                          if (e.target.value) {
+                            setUploadedMediaInfo({
+                              name: "Link tài liệu ngoài",
+                              size: 0,
+                              mediaType: "document",
+                              previewUrl: e.target.value,
+                            });
+                          } else if (uploadedMediaInfo?.mediaType === "document") {
+                            setUploadedMediaInfo(null);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-slate-750 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
+                      />
                     </div>
                   </div>
 
+                  {/* CTA Link Bar */}
+                  <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
+                    <span className="flex items-center gap-1.5 text-blue-400 text-xs font-medium shrink-0">
+                      <LinkIcon className="w-3.5 h-3.5" />
+                      <span>Link Kêu Gọi / Landing Page (Tùy chọn):</span>
+                    </span>
+                    <input
+                      type="url"
+                      placeholder="https://yourlandingpage.com (Tự động đính kèm nút xem thêm vào cuối tin)"
+                      value={campaignForm.cta_link}
+                      onChange={(e) => setCampaignForm({ ...campaignForm, cta_link: e.target.value })}
+                      className="flex-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+
                   {/* Active Media Badge */}
-                  {(campaignForm.image_url || campaignForm.video_url || uploadedMediaInfo) && (
+                  {(campaignForm.image_url || campaignForm.video_url || campaignForm.document_url || uploadedMediaInfo) && (
                     <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-750 flex items-center justify-between text-xs text-slate-200">
                       <div className="flex items-center gap-2.5 truncate">
                         {campaignForm.video_url || uploadedMediaInfo?.mediaType === "video" ? (
                           <Video className="w-4 h-4 text-rose-400 shrink-0" />
+                        ) : campaignForm.document_url || uploadedMediaInfo?.mediaType === "document" ? (
+                          <FileText className="w-4 h-4 text-amber-400 shrink-0" />
                         ) : (
                           <ImageIcon className="w-4 h-4 text-cyan-400 shrink-0" />
                         )}
                         <span className="font-medium truncate">
-                          Đã chọn {campaignForm.video_url || uploadedMediaInfo?.mediaType === "video" ? "Video:" : "Ảnh:"}{" "}
-                          {uploadedMediaInfo?.name || "Tệp đính kèm"}
+                          Đã chọn{" "}
+                          {campaignForm.video_url || uploadedMediaInfo?.mediaType === "video"
+                            ? "Video:"
+                            : campaignForm.document_url || uploadedMediaInfo?.mediaType === "document"
+                            ? "Tài liệu (PDF/Word):"
+                            : "Ảnh:"}{" "}
+                          {uploadedMediaInfo?.name || campaignForm.file_name || "Tệp đính kèm"}
                         </span>
                         {uploadedMediaInfo?.size ? (
                           <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded font-mono">
-                            {(uploadedMediaInfo.size / (1024 * 1024)).toFixed(2)} MB
+                            {uploadedMediaInfo.size > 1024 * 1024
+                              ? `${(uploadedMediaInfo.size / (1024 * 1024)).toFixed(2)} MB`
+                              : `${(uploadedMediaInfo.size / 1024).toFixed(0)} KB`}
                           </span>
                         ) : null}
                       </div>
@@ -2193,6 +2283,19 @@ export default function Home() {
                             controls
                             className="w-full max-h-32 object-contain bg-black"
                           />
+                        </div>
+                      )}
+                      {campaignForm.document_url && (
+                        <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 flex items-center gap-3 text-amber-300">
+                          <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                            <FileText className="w-5 h-5 text-amber-400" />
+                          </div>
+                          <div className="truncate flex-1">
+                            <div className="font-semibold text-xs text-amber-200 truncate">
+                              {uploadedMediaInfo?.name || campaignForm.file_name || "Tài liệu đính kèm"}
+                            </div>
+                            <div className="text-[10px] text-amber-400/80">Tệp đính kèm Zalo (PDF / Word)</div>
+                          </div>
                         </div>
                       )}
                       <div className="text-slate-200 whitespace-pre-line">
@@ -2348,6 +2451,15 @@ export default function Home() {
                 <Settings className="w-4 h-4 text-blue-400" />
                 Cấu Hình Webhook Mặc Định
               </h3>
+
+              <div className="mb-4 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 flex items-start gap-2.5">
+                <span className="text-base leading-none">💡</span>
+                <div className="leading-relaxed">
+                  <strong>Mẹo cấu hình n8n Webhook:</strong> Luôn dùng <strong>Production URL</strong> (bắt đầu bằng <code className="bg-slate-900 px-1 py-0.5 rounded text-white font-mono text-[11px]">/webhook/</code>, ví dụ: <code className="bg-slate-900 px-1 py-0.5 rounded text-blue-200 font-mono text-[11px]">https://n8n.qmath.io.vn/webhook/zalo-scrape</code>).<br />
+                  <span className="text-slate-400 text-[11px]">Tuyệt đối không dùng <code className="text-amber-400">/webhook-test/</code> để tránh bị lỗi 500 &amp; CORS khi n8n không mở chế độ Test step!</span>
+                </div>
+              </div>
+
               <form onSubmit={handleSaveSettings} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
