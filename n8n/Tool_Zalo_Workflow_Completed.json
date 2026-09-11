@@ -714,11 +714,10 @@
     },
     {
       "parameters": {
-        "resource": "friend",
         "operation": "sendFriendRequest",
         "useSession": true,
         "connectToId": "717682179432150574",
-        "userId": "={{ $json.zaloId }}"
+        "userId": "={{ $json.zaloId || $('Vòng Lặp Từng Lời Mời').item.json.zaloId }}"
       },
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
@@ -733,11 +732,13 @@
           "id": "kMMCpcPVoMsbnsy7",
           "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
         }
-      }
+      },
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "amount": "={{ Math.floor(Math.random() * (($json.delayMax || 30) - ($json.delayMin || 15) + 1)) + ($json.delayMin || 15) }}",
+        "amount": "={{ Math.floor(Math.random() * (( $('Vòng Lặp Từng Lời Mời').item.json.delayMax || 30) - ( $('Vòng Lặp Từng Lời Mời').item.json.delayMin || 15) + 1)) + ( $('Vòng Lặp Từng Lời Mời').item.json.delayMin || 15) }}",
         "unit": "seconds"
       },
       "type": "n8n-nodes-base.wait",
@@ -1135,6 +1136,7 @@
     },
     "Vòng Lặp Từng Lời Mời": {
       "main": [
+        [],
         [
           {
             "node": "Thực Hiện Kết Bạn Zalo",
