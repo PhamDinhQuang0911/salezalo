@@ -372,7 +372,14 @@ export async function getCampaignRecipients(campaign: any) {
     );
   }
 
-  // 3. Cooldown days: exclude members who received campaign recently
+  // 3. Filter by friend status if specified
+  if (campaign.friend_filter === "friends_only") {
+    members = members.filter((m) => m.is_friend === 1);
+  } else if (campaign.friend_filter === "not_friends_only") {
+    members = members.filter((m) => m.is_friend !== 1);
+  }
+
+  // 4. Cooldown days: exclude members who received campaign recently
   if (campaign.cooldown_days > 0) {
     const now = Date.now();
     const cooldownMs = campaign.cooldown_days * 24 * 60 * 60 * 1000;
@@ -383,13 +390,20 @@ export async function getCampaignRecipients(campaign: any) {
     });
   }
 
-  // 4. Stranger block filter: if not auto_friend_first, exclude members who block strangers
+  // 5. Stranger block filter: if not auto_friend_first, exclude members who block strangers
   if (!campaign.auto_friend_first) {
     members = members.filter((m) => !m.block_stranger_msg || m.block_stranger_msg === 0);
   }
 
-  // Sort by oldest last_campaign_sent_at first
+  // Sort: If friends_first, prioritize is_friend === 1 first, then is_friend !== 1, then oldest sent time
   members.sort((a, b) => {
+    if (campaign.friend_filter === "friends_first") {
+      const aFriend = a.is_friend === 1 ? 1 : 0;
+      const bFriend = b.is_friend === 1 ? 1 : 0;
+      if (aFriend !== bFriend) {
+        return bFriend - aFriend; // 1 before 0 (Friends first)
+      }
+    }
     const timeA = a.last_campaign_sent_at ? new Date(a.last_campaign_sent_at).getTime() : 0;
     const timeB = b.last_campaign_sent_at ? new Date(b.last_campaign_sent_at).getTime() : 0;
     return timeA - timeB;

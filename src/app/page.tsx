@@ -38,6 +38,7 @@ import {
   Play,
   CheckSquare,
   FileText,
+  ChevronDown,
 } from "lucide-react";
 import {
   clientGetStats,
@@ -123,6 +124,7 @@ export default function Home() {
     message_template: "",
     target_group_id: "all",
     account_phone: "",
+    friend_filter: "all",
     max_recipients: 100,
     cooldown_days: 10,
     auto_friend_first: 0,
@@ -175,6 +177,17 @@ export default function Home() {
   const [editingGroupName, setEditingGroupName] = useState("");
   const [editingGroupAvatar, setEditingGroupAvatar] = useState("");
   const [isSavingGroupEdit, setIsSavingGroupEdit] = useState(false);
+
+  // Active Zalo Account State (Global Switcher)
+  const [activeAccountPhone, setActiveAccountPhone] = useState<string>("");
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
+
+  // Per-feature Quick Webhook Settings State
+  const [showScrapeWebhookQuick, setShowScrapeWebhookQuick] = useState<boolean>(false);
+  const [showSendWebhookQuick, setShowSendWebhookQuick] = useState<boolean>(false);
+  const [showFriendWebhookQuick, setShowFriendWebhookQuick] = useState<boolean>(false);
+  const [syncWebhookModalOpen, setSyncWebhookModalOpen] = useState<boolean>(false);
+  const [tempSyncWebhookUrl, setTempSyncWebhookUrl] = useState<string>("");
 
 
   // Settings Tab
@@ -230,10 +243,39 @@ export default function Home() {
     try {
       const data = await clientGetAccounts();
       if (data.success) {
-        setAccounts(data.accounts || []);
+        const list = data.accounts || [];
+        setAccounts(list);
+        const savedPhone = typeof window !== "undefined" ? localStorage.getItem("zalo_active_account") : null;
+        if (savedPhone && list.some((a: any) => a.phone === savedPhone)) {
+          setActiveAccountPhone(savedPhone);
+        } else if (list.length > 0) {
+          setActiveAccountPhone((prev) => prev || list[0].phone);
+        }
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleSwitchAccount = (phone: string) => {
+    setActiveAccountPhone(phone);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("zalo_active_account", phone);
+    }
+    setNewGroupInput((prev) => ({ ...prev, account_phone: phone }));
+    setCampaignForm((prev) => ({ ...prev, account_phone: phone }));
+    setAutoFriendAccountPhone(phone);
+    setIsAccountMenuOpen(false);
+  };
+
+  const handleQuickSaveWebhook = async (key: string, value: string) => {
+    try {
+      const updated = { ...settings, [key]: (value || "").trim() };
+      setSettings(updated);
+      await clientUpdateSettings(updated);
+      alert("Đã lưu Webhook thành công!");
+    } catch (e: any) {
+      alert("Lỗi lưu webhook: " + (e.message || e));
     }
   };
 
@@ -777,6 +819,7 @@ export default function Home() {
       message_template: c.message_template || "",
       target_group_id: c.target_group_id || "all",
       account_phone: c.account_phone || "",
+      friend_filter: c.friend_filter || "all",
       max_recipients: c.max_recipients || 100,
       cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 10,
       auto_friend_first: c.auto_friend_first || 0,
@@ -859,6 +902,7 @@ export default function Home() {
   });
 
   const selectedGroupObj = groups.find((g) => g.group_id === selectedGroupId);
+  const activeAccountObj = accounts.find((a) => a.phone === activeAccountPhone);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 font-sans">
@@ -881,11 +925,134 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <div className="hidden lg:flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 px-3 py-1.5 rounded-xl text-xs text-slate-300">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Account Switcher (Avatar Dropdown) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+                className="flex items-center gap-2 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 px-2.5 py-1.5 rounded-2xl transition cursor-pointer shadow-sm text-left group"
+                title="Bấm để chuyển đổi tài khoản Zalo"
+              >
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white font-bold text-xs shadow-sm ring-1 ring-white/10">
+                    {activeAccountObj?.name ? (
+                      activeAccountObj.name.slice(0, 1).toUpperCase()
+                    ) : (
+                      <Phone className="w-3.5 h-3.5" />
+                    )}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900 animate-pulse"></span>
+                </div>
+                <div className="hidden md:block min-w-0 pr-1">
+                  <div className="text-xs font-semibold text-white truncate max-w-[120px] leading-tight">
+                    {activeAccountObj ? (activeAccountObj.name || activeAccountObj.phone) : "Tài Khoản Zalo"}
+                  </div>
+                  <div className="text-[10px] text-emerald-400 font-mono leading-tight truncate max-w-[120px]">
+                    {activeAccountObj ? activeAccountObj.phone : "Chung hệ thống"}
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-transform duration-200 ${
+                    isAccountMenuOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {/* Account Dropdown Popover */}
+              {isAccountMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsAccountMenuOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl z-50 p-2 space-y-1 animate-fadeIn">
+                    <div className="px-3 py-2 border-b border-slate-800 text-xs">
+                      <p className="font-semibold text-white flex items-center gap-1.5">
+                        <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Chuyển Đổi Tài Khoản Zalo</span>
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Chọn tài khoản thao tác cho cào nhóm, gửi tin & kết bạn
+                      </p>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-1 py-1 pr-1 scrollbar-thin">
+                      {/* Option: Default Webhook */}
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchAccount("")}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer border ${
+                          activeAccountPhone === ""
+                            ? "bg-blue-600/15 border-blue-500/50 text-blue-300 font-medium"
+                            : "bg-slate-950/40 border-transparent text-slate-300 hover:bg-slate-800/60"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs">
+                            🌐
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white">Tài khoản mặc định</div>
+                            <div className="text-[10px] text-slate-500 font-mono">Dùng Webhook hệ thống</div>
+                          </div>
+                        </div>
+                        {activeAccountPhone === "" && <Check className="w-4 h-4 text-blue-400 shrink-0" />}
+                      </button>
+
+                      {/* User Accounts List */}
+                      {accounts.map((acc) => (
+                        <button
+                          key={acc.phone}
+                          type="button"
+                          onClick={() => handleSwitchAccount(acc.phone)}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer border ${
+                            activeAccountPhone === acc.phone
+                              ? "bg-emerald-600/15 border-emerald-500/50 text-emerald-300 font-medium"
+                              : "bg-slate-950/40 border-transparent text-slate-300 hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                              {acc.name ? acc.name.slice(0, 1).toUpperCase() : "Z"}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-semibold text-white truncate">{acc.name || "Zalo"}</div>
+                              <div className="text-[10px] text-slate-400 font-mono truncate">{acc.phone}</div>
+                            </div>
+                          </div>
+                          {activeAccountPhone === acc.phone && (
+                            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+
+                      {accounts.length === 0 && (
+                        <div className="p-3 text-center text-xs text-slate-500">
+                          Chưa có tài khoản nào được thêm.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-1.5 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAccountMenuOpen(false);
+                          setActiveTab("accounts");
+                        }}
+                        className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center justify-center gap-1 font-medium py-1.5 px-2 rounded-lg hover:bg-emerald-500/10 cursor-pointer w-full transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Quản Lý / Thêm Tài Khoản</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="hidden xl:flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 px-3 py-1.5 rounded-xl text-xs text-slate-300">
               <Database className="w-3.5 h-3.5 text-amber-400" />
-              <span>Firebase Firestore:</span>
-              <span className="font-mono text-amber-400 font-medium">zalosale2 (Cloud 1GB Free)</span>
+              <span>Firestore:</span>
+              <span className="font-mono text-amber-400 font-medium">zalosale2</span>
             </div>
 
             <button
@@ -1263,19 +1430,32 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                      <button
-                        onClick={handleSyncFriendStatus}
-                        disabled={isSyncingFriends}
-                        className="text-xs text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-medium transition-all shadow-sm shadow-emerald-950"
-                        title="Gọi n8n lấy danh sách bạn bè & đối soát để cập nhật trạng thái 🤝 Bạn bè cho toàn bộ thành viên đã cào"
-                      >
-                        {isSyncingFriends ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                        ) : (
-                          <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                        )}
-                        <span>{isSyncingFriends ? "Đang đối soát..." : "Cập Nhật Trạng Thái Kết Bạn (🤝)"}</span>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={handleSyncFriendStatus}
+                          disabled={isSyncingFriends}
+                          className="text-xs text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-medium transition-all shadow-sm shadow-emerald-950"
+                          title="Gọi n8n lấy danh sách bạn bè & đối soát để cập nhật trạng thái 🤝 Bạn bè cho toàn bộ thành viên đã cào"
+                        >
+                          {isSyncingFriends ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                          ) : (
+                            <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          )}
+                          <span>{isSyncingFriends ? "Đang đối soát..." : "Cập Nhật Trạng Thái Kết Bạn (🤝)"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTempSyncWebhookUrl(settings.n8n_sync_webhook || "");
+                            setSyncWebhookModalOpen(true);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-emerald-400 bg-slate-800/80 hover:bg-slate-700/80 rounded-lg border border-slate-700 transition cursor-pointer"
+                          title="Cài đặt nhanh Webhook Cập Nhật Bạn Bè n8n (nhỏ gọn)"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
                       <button
                         onClick={() => {
@@ -1670,7 +1850,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={handleSyncFriendStatus}
@@ -1684,6 +1864,17 @@ export default function Home() {
                     <UserCheck className="w-4 h-4 text-emerald-400" />
                   )}
                   <span>{isSyncingFriends ? "Đang đối soát..." : "Cập Nhật Trạng Thái Kết Bạn (🤝)"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempSyncWebhookUrl(settings.n8n_sync_webhook || "");
+                    setSyncWebhookModalOpen(true);
+                  }}
+                  className="p-2 text-slate-400 hover:text-emerald-400 bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700 transition cursor-pointer"
+                  title="Cài đặt nhanh Webhook Cập Nhật Bạn Bè n8n (nhỏ gọn)"
+                >
+                  <Settings className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -1972,6 +2163,44 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Compact Webhook Friend Request Settings */}
+              <div className="pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setShowFriendWebhookQuick(!showFriendWebhookQuick)}
+                    className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition cursor-pointer py-1"
+                  >
+                    <Settings className="w-3 h-3 text-slate-500" />
+                    <span>⚙️ Cài đặt Webhook Kết Bạn n8n (nhỏ gọn)</span>
+                    <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${showFriendWebhookQuick ? "rotate-180" : ""}`} />
+                  </button>
+                  {settings.n8n_friend_webhook && (
+                    <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs hidden sm:inline">
+                      {settings.n8n_friend_webhook}
+                    </span>
+                  )}
+                </div>
+                {showFriendWebhookQuick && (
+                  <div className="mt-2 p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-2 animate-fadeIn">
+                    <input
+                      type="text"
+                      placeholder="https://n8n.qmath.io.vn/webhook/zalo-friend-request"
+                      value={settings.n8n_friend_webhook || ""}
+                      onChange={(e) => setSettings({ ...settings, n8n_friend_webhook: e.target.value })}
+                      className="flex-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-pink-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSaveWebhook("n8n_friend_webhook", settings.n8n_friend_webhook)}
+                      className="bg-pink-600 hover:bg-pink-500 text-white text-xs font-semibold px-3 py-1 rounded-lg transition shrink-0 cursor-pointer shadow-sm"
+                    >
+                      Lưu URL
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Nút thực thi chính */}
               <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-800/80">
                 <div className="text-xs text-slate-400 flex items-center gap-1.5">
@@ -1979,7 +2208,7 @@ export default function Home() {
                   <span>Cơ chế an toàn: tự động đổi trạng thái sang ⏳ Đang chờ xác nhận ngay khi kích hoạt.</span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={handleSyncFriendStatus}
@@ -1992,6 +2221,17 @@ export default function Home() {
                       <UserCheck className="w-4 h-4 text-emerald-400" />
                     )}
                     <span>Cập Nhật Trạng Thái Kết Bạn</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempSyncWebhookUrl(settings.n8n_sync_webhook || "");
+                      setSyncWebhookModalOpen(true);
+                    }}
+                    className="p-2.5 text-slate-400 hover:text-emerald-400 bg-slate-800/80 hover:bg-slate-700/80 rounded-xl border border-slate-700 transition cursor-pointer"
+                    title="Cài đặt nhanh Webhook Cập Nhật Bạn Bè n8n (nhỏ gọn)"
+                  >
+                    <Settings className="w-4 h-4" />
                   </button>
 
                   <button
@@ -2381,6 +2621,44 @@ export default function Home() {
                     {groupNotice}
                   </div>
                 )}
+
+                {/* Compact Webhook Scrape Settings */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setShowScrapeWebhookQuick(!showScrapeWebhookQuick)}
+                      className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition cursor-pointer py-1"
+                    >
+                      <Settings className="w-3 h-3 text-slate-500" />
+                      <span>⚙️ Cài đặt Webhook Cào n8n (nhỏ gọn)</span>
+                      <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${showScrapeWebhookQuick ? "rotate-180" : ""}`} />
+                    </button>
+                    {settings.n8n_scrape_webhook && (
+                      <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs hidden sm:inline">
+                        {settings.n8n_scrape_webhook}
+                      </span>
+                    )}
+                  </div>
+                  {showScrapeWebhookQuick && (
+                    <div className="mt-2 p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-2 animate-fadeIn">
+                      <input
+                        type="text"
+                        placeholder="https://n8n.qmath.io.vn/webhook/zalo-scrape"
+                        value={settings.n8n_scrape_webhook || ""}
+                        onChange={(e) => setSettings({ ...settings, n8n_scrape_webhook: e.target.value })}
+                        className="flex-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleQuickSaveWebhook("n8n_scrape_webhook", settings.n8n_scrape_webhook)}
+                        className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-1 rounded-lg transition shrink-0 cursor-pointer shadow-sm"
+                      >
+                        Lưu URL
+                      </button>
+                    </div>
+                  )}
+                </div>
               </form>
             </div>
 
@@ -2509,7 +2787,7 @@ export default function Home() {
 
               <form onSubmit={handleSaveCampaign} className="space-y-4">
                 {/* Row 1 */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1">Tên Chiến Dịch (*)</label>
                     <input
@@ -2551,6 +2829,20 @@ export default function Home() {
                           Theo nhóm: {g.name} ({g.filtered_member_count} người)
                         </option>
                       ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Đối Tượng / Phân Loại Bạn Bè</label>
+                    <select
+                      value={campaignForm.friend_filter || "all"}
+                      onChange={(e) => setCampaignForm({ ...campaignForm, friend_filter: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="all">🌐 Tất cả thành viên thỏa mãn</option>
+                      <option value="friends_first">🤝➡️➕ Mix: Bạn bè trước ➡️ Người lạ sau</option>
+                      <option value="friends_only">🤝 Chỉ gửi người ĐÃ LÀ BẠN BÈ (Tránh bị chặn)</option>
+                      <option value="not_friends_only">➕ Chỉ gửi người CHƯA KẾT BẠN (Tiếp cận mới)</option>
                     </select>
                   </div>
                 </div>
@@ -2954,6 +3246,44 @@ export default function Home() {
                     {campaignNotice}
                   </div>
                 )}
+
+                {/* Compact Webhook Send Settings */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setShowSendWebhookQuick(!showSendWebhookQuick)}
+                      className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition cursor-pointer py-1"
+                    >
+                      <Settings className="w-3 h-3 text-slate-500" />
+                      <span>⚙️ Cài đặt Webhook Gửi Tin n8n (nhỏ gọn)</span>
+                      <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${showSendWebhookQuick ? "rotate-180" : ""}`} />
+                    </button>
+                    {settings.n8n_send_webhook && (
+                      <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs hidden sm:inline">
+                        {settings.n8n_send_webhook}
+                      </span>
+                    )}
+                  </div>
+                  {showSendWebhookQuick && (
+                    <div className="mt-2 p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center gap-2 animate-fadeIn">
+                      <input
+                        type="text"
+                        placeholder="https://n8n.qmath.io.vn/webhook/zalo-send-campaign"
+                        value={settings.n8n_send_webhook || ""}
+                        onChange={(e) => setSettings({ ...settings, n8n_send_webhook: e.target.value })}
+                        className="flex-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleQuickSaveWebhook("n8n_send_webhook", settings.n8n_send_webhook)}
+                        className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-1 rounded-lg transition shrink-0 cursor-pointer shadow-sm"
+                      >
+                        Lưu URL
+                      </button>
+                    </div>
+                  )}
+                </div>
               </form>
             </div>
 
@@ -2980,6 +3310,21 @@ export default function Home() {
                           <span className="bg-slate-800 text-slate-300 text-[11px] px-2 py-0.5 rounded">
                             {c.group_name ? `Nhóm: ${c.group_name}` : "Tất cả nhóm"}
                           </span>
+                          {c.friend_filter === "friends_first" && (
+                            <span className="bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[11px] px-2 py-0.5 rounded font-medium">
+                              🤝➡️➕ Mix: Bạn bè trước
+                            </span>
+                          )}
+                          {c.friend_filter === "friends_only" && (
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] px-2 py-0.5 rounded font-medium">
+                              🤝 Chỉ bạn bè
+                            </span>
+                          )}
+                          {c.friend_filter === "not_friends_only" && (
+                            <span className="bg-pink-500/10 text-pink-400 border border-pink-500/20 text-[11px] px-2 py-0.5 rounded font-medium">
+                              ➕ Chỉ người lạ
+                            </span>
+                          )}
                           {c.account_phone && (
                             <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] px-2 py-0.5 rounded font-mono">
                               SĐT: {c.account_phone}
@@ -3334,6 +3679,67 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: QUICK SETTINGS FOR FRIEND SYNC WEBHOOK ================= */}
+      {syncWebhookModalOpen && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                <Settings className="w-4 h-4 text-emerald-400" />
+                <span>Cài Đặt Webhook Cập Nhật Bạn Bè n8n</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSyncWebhookModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-slate-400">
+                Webhook này được gọi khi bấm nút <strong>"Cập Nhật Trạng Thái Kết Bạn (🤝)"</strong> để n8n quét danh sách bạn bè và lời mời đã gửi từ Zalo.
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  URL Webhook n8n (Sync Friends)
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://n8n.qmath.io.vn/webhook/zalo-sync-friends"
+                  value={tempSyncWebhookUrl}
+                  onChange={(e) => setTempSyncWebhookUrl(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-emerald-500"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setSyncWebhookModalOpen(false)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await handleQuickSaveWebhook("n8n_sync_webhook", tempSyncWebhookUrl);
+                  setSyncWebhookModalOpen(false);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer shadow-md shadow-emerald-600/20"
+              >
+                Lưu Cài Đặt
+              </button>
+            </div>
           </div>
         </div>
       )}
