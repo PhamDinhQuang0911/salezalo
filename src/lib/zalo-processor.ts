@@ -115,7 +115,20 @@ export async function processZaloData(payload: any): Promise<IngestionResult> {
   }
 
   const groupId = groupInfo?.groupId || "GROUP_" + Date.now();
-  const groupName = groupInfo?.name || "Nhóm Zalo (" + groupId + ")";
+  let groupName = groupInfo?.name || "Nhóm Zalo (" + groupId + ")";
+
+  // Preserve existing custom group name from Firestore if incoming name is just fallback
+  try {
+    const existingGroupSnap = await getDoc(doc(firestore, collections.groups, groupId));
+    if (existingGroupSnap.exists()) {
+      const existingData = existingGroupSnap.data();
+      if (existingData?.name && !existingData.name.includes(groupId)) {
+        groupName = existingData.name;
+      }
+    }
+  } catch (e) {
+    // Ignore error
+  }
   const creatorId = groupInfo?.creatorId || "";
   const adminIds = groupInfo?.adminIds || [];
 

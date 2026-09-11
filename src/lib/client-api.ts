@@ -4,7 +4,9 @@ import {
   saveAccount,
   deleteAccount,
   getGroups,
+  getGroupById,
   saveGroup,
+  updateGroup,
   deleteGroup,
   getMembers,
   updateMember,
@@ -64,23 +66,35 @@ export async function clientSaveGroup(data: {
   invite_link?: string;
   account_phone?: string;
 }) {
-  const effectiveId = data.group_id || "GROUP_" + Date.now();
+  const effectiveId = data.group_id?.trim() || "GROUP_" + Date.now();
+  const existing = await getGroupById(effectiveId);
+
+  let finalName = data.name?.trim() || "";
+  if (!finalName && existing?.name && !existing.name.includes(effectiveId)) {
+    finalName = existing.name;
+  }
+  if (!finalName) {
+    finalName = data.name?.trim() || `Nhóm Zalo (${effectiveId})`;
+  }
+
   const group = await saveGroup(effectiveId, {
-    name: data.name || `Nhóm Zalo (${effectiveId})`,
-    description: data.description || "",
-    invite_link: data.invite_link || "",
-    account_phone: data.account_phone || "",
-    status: "pending",
-    filtered_member_count: 0,
-    admin_count: 0,
-    total_member: 0,
-    created_at: new Date().toISOString(),
+    name: finalName,
+    description: data.description || existing?.description || "",
+    invite_link: data.invite_link || existing?.invite_link || "",
+    account_phone: data.account_phone || existing?.account_phone || "",
+    status: existing?.status || "pending",
+    filtered_member_count: existing?.filtered_member_count || 0,
+    admin_count: existing?.admin_count || 0,
+    total_member: existing?.total_member || 0,
+    avatar: existing?.avatar || "",
+    full_avatar: existing?.full_avatar || "",
+    created_at: existing?.created_at || new Date().toISOString(),
   });
   return { success: true, group };
 }
 
 export async function clientUpdateGroup(groupId: string, data: { name?: string; avatar?: string; description?: string }) {
-  const group = await saveGroup(groupId, data);
+  const group = await updateGroup(groupId, data);
   return { success: true, group };
 }
 

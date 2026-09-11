@@ -112,6 +112,43 @@ export async function saveGroup(groupId: string, data: any) {
   return { id: String(groupId), ...payload };
 }
 
+export async function updateGroup(groupId: string, data: { name?: string; avatar?: string; description?: string }) {
+  const docRef = doc(firestore, collections.groups, String(groupId));
+  const payload = {
+    ...data,
+    updated_at: new Date().toISOString(),
+  };
+  await setDoc(docRef, payload, { merge: true });
+
+  if (data.name) {
+    try {
+      const snap = await getDocs(collection(firestore, collections.members));
+      const batch = writeBatch(firestore);
+      let count = 0;
+      for (const d of snap.docs) {
+        const m = d.data();
+        const belongs =
+          (Array.isArray(m.group_ids) && m.group_ids.includes(String(groupId))) ||
+          m.group_id === String(groupId);
+        if (belongs) {
+          batch.update(d.ref, {
+            groups_list: data.name,
+            group_name: data.name,
+          });
+          count++;
+        }
+      }
+      if (count > 0) {
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn("Could not batch update members group name:", e);
+    }
+  }
+
+  return { id: String(groupId), ...payload };
+}
+
 export async function deleteGroup(groupId: string) {
   const docRef = doc(firestore, collections.groups, String(groupId));
   await deleteDoc(docRef);

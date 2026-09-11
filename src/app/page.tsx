@@ -170,6 +170,12 @@ export default function Home() {
   const [isLoadingAutoFriendPreview, setIsLoadingAutoFriendPreview] = useState<boolean>(false);
   const [autoFriendAvailableCount, setAutoFriendAvailableCount] = useState<number>(0);
 
+  // Group Edit Modal State
+  const [editingGroupModal, setEditingGroupModal] = useState<any | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  const [editingGroupAvatar, setEditingGroupAvatar] = useState("");
+  const [isSavingGroupEdit, setIsSavingGroupEdit] = useState(false);
+
 
   // Settings Tab
   const [settings, setSettings] = useState<any>({
@@ -476,20 +482,35 @@ export default function Home() {
     }
   };
 
-  const handleEditGroup = async (group: any) => {
-    const newName = window.prompt("Nhập tên nhóm hiển thị mới:", group.name || "");
-    if (newName === null) return;
-    const newAvatar = window.prompt("Nhập URL ảnh đại diện (Avatar link) của nhóm (để trống nếu giữ nguyên):", group.avatar || "");
+  const openEditGroupModal = (group: any) => {
+    setEditingGroupModal(group);
+    const isDefault = group.name && (group.name.includes(group.group_id) || group.name.startsWith("Nhóm Zalo"));
+    setEditingGroupName(isDefault ? "" : (group.name || ""));
+    setEditingGroupAvatar(group.avatar || "");
+  };
+
+  const handleEditGroup = (group: any) => {
+    openEditGroupModal(group);
+  };
+
+  const handleSaveGroupModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGroupModal) return;
+    setIsSavingGroupEdit(true);
     try {
-      await clientUpdateGroup(group.group_id, {
-        name: newName.trim() || group.name,
-        avatar: newAvatar !== null ? newAvatar.trim() : group.avatar,
+      const finalName = editingGroupName.trim() || editingGroupModal.name;
+      await clientUpdateGroup(editingGroupModal.group_id, {
+        name: finalName,
+        avatar: editingGroupAvatar.trim(),
       });
-      fetchGroups();
-      fetchStats();
-      fetchMembers();
+      setEditingGroupModal(null);
+      await fetchGroups();
+      await fetchStats();
+      await fetchMembers(memberPagination.page);
     } catch (err: any) {
-      alert("Lỗi cập nhật nhóm: " + err.message);
+      alert("Lỗi cập nhật nhóm: " + (err.message || err));
+    } finally {
+      setIsSavingGroupEdit(false);
     }
   };
 
@@ -1765,21 +1786,78 @@ export default function Home() {
 
                 {/* Chọn nguồn nhóm */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Nguồn thành viên cần kết bạn
-                  </label>
-                  <select
-                    value={autoFriendGroupId}
-                    onChange={(e) => setAutoFriendGroupId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500"
-                  >
-                    <option value="all">🌐 Tất cả các nhóm (Toàn bộ kho thành viên cào)</option>
-                    {groups.map((g) => (
-                      <option key={g.group_id} value={g.group_id}>
-                        {g.name} ({g.filtered_member_count || 0} thành viên sạch)
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Nguồn thành viên cần kết bạn
+                    </label>
+                    {autoFriendGroupId !== "all" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const grp = groups.find((g) => g.group_id === autoFriendGroupId);
+                          if (grp) openEditGroupModal(grp);
+                        }}
+                        className="text-[11px] text-pink-400 hover:text-pink-300 flex items-center gap-1 cursor-pointer font-medium"
+                        title="Đổi tên nhóm này để dễ nhận diện thay vì UID"
+                      >
+                        <Edit className="w-3 h-3" />
+                        <span>Đổi tên nhóm</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={autoFriendGroupId}
+                      onChange={(e) => setAutoFriendGroupId(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500"
+                    >
+                      <option value="all">🌐 Tất cả các nhóm (Toàn bộ kho thành viên cào)</option>
+                      {groups.map((g) => (
+                        <option key={g.group_id} value={g.group_id}>
+                          {g.name} ({g.filtered_member_count || 0} thành viên sạch)
+                        </option>
+                      ))}
+                    </select>
+
+                    {autoFriendGroupId !== "all" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const grp = groups.find((g) => g.group_id === autoFriendGroupId);
+                          if (grp) openEditGroupModal(grp);
+                        }}
+                        className="px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition"
+                        title="Bấm để đổi tên hiển thị của nhóm này thay vì số UID"
+                      >
+                        <Edit className="w-3.5 h-3.5 text-pink-400" />
+                        <span className="hidden sm:inline">Đổi tên nhóm</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {autoFriendGroupId !== "all" && (() => {
+                    const currentGrp = groups.find((g) => g.group_id === autoFriendGroupId);
+                    const isDefaultName = currentGrp?.name && (currentGrp.name.includes(currentGrp.group_id) || currentGrp.name.startsWith("Nhóm Zalo"));
+                    if (isDefaultName) {
+                      return (
+                        <div className="mt-2 p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/20 text-xs text-pink-300 flex items-center justify-between gap-2 animate-fadeIn">
+                          <span className="text-[11px] leading-relaxed">
+                            💡 Nhóm này đang hiển thị theo số UID Zalo. Bấm nút bên để đặt tên thực tế:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEditGroupModal(currentGrp)}
+                            className="bg-pink-600 hover:bg-pink-500 text-white font-semibold px-2.5 py-1 rounded-lg text-[11px] shrink-0 cursor-pointer shadow-sm transition"
+                          >
+                            ✏️ Đặt tên nhóm
+                          </button>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
                   <p className="text-[11px] text-slate-500 mt-1">
                     Chỉ lọc những thành viên chưa kết bạn (loại bỏ Admin và người đã gửi).
                   </p>
@@ -3177,6 +3255,85 @@ export default function Home() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: EDIT GROUP NAME & AVATAR ================= */}
+      {editingGroupModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                <Edit className="w-4 h-4 text-pink-400" />
+                <span>Đổi Tên Hiển Thị Nhóm Zalo</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingGroupModal(null)}
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-1 text-xs">
+              <span className="text-slate-400">UID nhóm Zalo:</span>
+              <span className="font-mono text-slate-200 ml-1.5 font-bold bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                {editingGroupModal.group_id}
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveGroupModal} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Tên nhóm hiển thị mới (*)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="vd: Nhóm Khách Hàng VIP, Nhóm Ôn Thi..."
+                  value={editingGroupName}
+                  onChange={(e) => setEditingGroupName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+                  autoFocus
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Tên này sẽ hiển thị trong tất cả danh sách chọn nhóm, bảng thành viên và chiến dịch thay vì số UID.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  URL ảnh đại diện nhóm (Avatar link - Tùy chọn)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://... (để trống nếu giữ nguyên)"
+                  value={editingGroupAvatar}
+                  onChange={(e) => setEditingGroupAvatar(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 font-mono"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingGroupModal(null)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingGroupEdit}
+                  className="bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white text-xs font-bold px-5 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-md shadow-pink-900/30"
+                >
+                  {isSavingGroupEdit ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>Lưu Tên Nhóm</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
