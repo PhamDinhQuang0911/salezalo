@@ -133,7 +133,7 @@ export async function getMembers(filter: MemberFilter = {}) {
   let allMembers = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
 
   // In-memory filtering for rich multi-criteria filters
-  if (filter.groupId) {
+  if (filter.groupId && filter.groupId !== "all" && filter.groupId !== "") {
     allMembers = allMembers.filter((m) =>
       Array.isArray(m.group_ids) ? m.group_ids.includes(filter.groupId) : m.group_id === filter.groupId
     );
@@ -322,8 +322,8 @@ export async function getCampaignRecipients(campaign: any) {
   // 1. Only regular members (no admin/creator)
   members = members.filter((m) => m.is_admin === 0 && m.role === "member");
 
-  // 2. Filter by target group if specified
-  if (campaign.target_group_id) {
+  // 2. Filter by target group if specified (ignore "all" or empty string)
+  if (campaign.target_group_id && campaign.target_group_id !== "all" && campaign.target_group_id !== "") {
     members = members.filter((m) =>
       Array.isArray(m.group_ids)
         ? m.group_ids.includes(campaign.target_group_id)
