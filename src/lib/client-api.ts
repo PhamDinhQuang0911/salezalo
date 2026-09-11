@@ -188,6 +188,11 @@ export async function clientGetSettings() {
     settings: {
       n8n_scrape_webhook: settings.n8n_scrape_webhook || "",
       n8n_send_webhook: settings.n8n_send_webhook || "",
+      n8n_friend_webhook: settings.n8n_friend_webhook || "",
+      n8n_sync_webhook: settings.n8n_sync_webhook || "",
+      gemini_api_key: settings.gemini_api_key || "",
+      gemini_model: settings.gemini_model || "gemini-3.5-flash",
+      ...settings,
     },
   };
 }

@@ -39,6 +39,9 @@ import {
   CheckSquare,
   FileText,
   ChevronDown,
+  RotateCcw,
+  Key,
+  Wand2,
 } from "lucide-react";
 import {
   clientGetStats,
@@ -67,6 +70,10 @@ import {
   clientSyncFriendStatus,
   clientTriggerSendFriendRequests,
 } from "@/lib/client-api";
+import {
+  GEMINI_FLASH_MODELS,
+  rewriteZaloMessage,
+} from "@/lib/gemini-service";
 
 
 export default function Home() {
@@ -174,6 +181,17 @@ export default function Home() {
     mediaType: "image" | "video" | "document";
     previewUrl: string;
   } | null>(null);
+
+  // Gemini AI Message Rewriter States
+  const [geminiApiKey, setGeminiApiKey] = useState<string>("");
+  const [geminiModel, setGeminiModel] = useState<string>("gemini-3.5-flash");
+  const [isAiRewriting, setIsAiRewriting] = useState<boolean>(false);
+  const [aiNotice, setAiNotice] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [aiRewriteHistory, setAiRewriteHistory] = useState<string[]>([]);
+  const [showAiCustomPrompt, setShowAiCustomPrompt] = useState<boolean>(false);
+  const [customAiPrompt, setCustomAiPrompt] = useState<string>("");
+  const [showAiKeyModal, setShowAiKeyModal] = useState<boolean>(false);
+  const [tempGeminiKey, setTempGeminiKey] = useState<string>("");
 
   // Friend Status Sync (via n8n getAllFriends & getSentFriendRequest)
   const [isSyncingFriends, setIsSyncingFriends] = useState(false);
@@ -351,6 +369,13 @@ export default function Home() {
       const data = await clientGetSettings();
       if (data.success && data.settings) {
         setSettings(data.settings as any);
+        const localKey = typeof window !== "undefined" ? localStorage.getItem("zalo_gemini_api_key") || "" : "";
+        const localModel = typeof window !== "undefined" ? localStorage.getItem("zalo_gemini_model") || "" : "";
+        const keyToUse = data.settings.gemini_api_key || localKey || "";
+        const modelToUse = data.settings.gemini_model || localModel || "gemini-3.5-flash";
+        setGeminiApiKey(keyToUse);
+        setTempGeminiKey(keyToUse);
+        setGeminiModel(modelToUse);
       }
     } catch (e) {
       console.error(e);
@@ -672,6 +697,78 @@ export default function Home() {
     } finally {
       setIsImportingJson(false);
     }
+  };
+
+  // Gemini AI Message Rewriter Handlers
+  const handleSaveGeminiKey = async () => {
+    const key = tempGeminiKey.trim();
+    setGeminiApiKey(key);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("zalo_gemini_api_key", key);
+      localStorage.setItem("zalo_gemini_model", geminiModel);
+    }
+    const updated = { ...settings, gemini_api_key: key, gemini_model: geminiModel };
+    setSettings(updated);
+    try {
+      await clientUpdateSettings(updated);
+    } catch (err) {
+      console.warn("Could not sync gemini key to Firestore", err);
+    }
+    setShowAiKeyModal(false);
+    setAiNotice({ text: "Đã lưu Google Gemini API Key thành công!", isError: false });
+    setTimeout(() => setAiNotice(null), 3500);
+  };
+
+  const handleAiRewrite = async (stylePrompt: string) => {
+    if (!campaignForm.message_template || !campaignForm.message_template.trim()) {
+      setAiNotice({ text: "Vui lòng nhập nội dung tin nhắn trước khi yêu cầu AI viết lại!", isError: true });
+      return;
+    }
+    const activeKey = geminiApiKey || (typeof window !== "undefined" ? localStorage.getItem("zalo_gemini_api_key") || "" : "") || "";
+    if (!activeKey) {
+      setAiNotice({ text: "Vui lòng cài đặt Google Gemini API Key để bắt đầu viết lại!", isError: true });
+      setShowAiKeyModal(true);
+      return;
+    }
+
+    setIsAiRewriting(true);
+    setAiNotice(null);
+
+    // Save current text to history for undo
+    setAiRewriteHistory((prev) => [campaignForm.message_template, ...prev.slice(0, 9)]);
+
+    try {
+      const result = await rewriteZaloMessage({
+        apiKey: activeKey,
+        model: geminiModel,
+        stylePrompt,
+        originalText: campaignForm.message_template,
+      });
+
+      if (result.success && result.text) {
+        setCampaignForm((prev) => ({ ...prev, message_template: result.text! }));
+        setAiNotice({
+          text: `✨ AI (${result.modelUsed}) đã viết lại tin nhắn thành công!${result.fallbackOccurred ? " (Chế độ Flash tối ưu)" : ""}`,
+          isError: false,
+        });
+        setTimeout(() => setAiNotice(null), 5000);
+      } else {
+        setAiNotice({ text: result.error || "Lỗi viết lại bằng AI", isError: true });
+      }
+    } catch (err: any) {
+      setAiNotice({ text: "Lỗi AI: " + (err.message || String(err)), isError: true });
+    } finally {
+      setIsAiRewriting(false);
+    }
+  };
+
+  const handleUndoAiRewrite = () => {
+    if (aiRewriteHistory.length === 0) return;
+    const [previous, ...rest] = aiRewriteHistory;
+    setCampaignForm((prev) => ({ ...prev, message_template: previous }));
+    setAiRewriteHistory(rest);
+    setAiNotice({ text: "Đã hoàn tác lại nội dung trước đó!", isError: false });
+    setTimeout(() => setAiNotice(null), 3000);
   };
 
   // Campaign: Create or Update
@@ -2944,64 +3041,140 @@ export default function Home() {
               </div>
 
               <form onSubmit={handleSaveCampaign} className="space-y-4">
-                {/* Row 1 */}
+                {/* Row 1: Clean, modern, lightweight controls */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Col 1: Campaign Name */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Tên Chiến Dịch (*)</label>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Tên Chiến Dịch (*)</label>
                     <input
                       type="text"
                       placeholder="vd: Quảng cáo Khóa học Toán 10"
                       value={campaignForm.name}
                       onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-blue-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
                       required
                     />
                   </div>
 
+                  {/* Col 2: Sender Account */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Chọn SĐT Zalo Gửi Tin</label>
-                    <select
-                      value={campaignForm.account_phone}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, account_phone: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="">-- Dùng Webhook Gửi mặc định --</option>
-                      {accounts.map((a) => (
-                        <option key={a.phone} value={a.phone}>
-                          {a.phone} ({a.name})
-                        </option>
-                      ))}
-                    </select>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Chọn SĐT Zalo Gửi Tin</label>
+                    <div className="relative">
+                      <select
+                        value={campaignForm.account_phone}
+                        onChange={(e) => setCampaignForm({ ...campaignForm, account_phone: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-blue-500 rounded-xl px-3 py-2 text-xs font-normal text-slate-200 focus:outline-none transition-colors appearance-none pr-8 cursor-pointer"
+                      >
+                        <option value="" className="bg-slate-950 text-slate-300">-- Dùng Webhook Gửi mặc định --</option>
+                        {accounts.map((a) => (
+                          <option key={a.phone} value={a.phone} className="bg-slate-950 text-slate-200">
+                            {a.phone} ({a.name || "Không tên"})
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
                   </div>
 
+                  {/* Col 3: Target Group Selector (Lightweight font, All vs Specific Group toggle) */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Tệp Nhận Tin Mục Tiêu</label>
-                    <select
-                      value={campaignForm.target_group_id}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, target_group_id: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="all">Toàn bộ thành viên sạch ({stats.targetMembers} người)</option>
-                      {groups.map((g) => (
-                        <option key={g.group_id} value={g.group_id}>
-                          Theo nhóm: {g.name} ({g.filtered_member_count} người)
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Tệp Nhận Tin</span>
+                      </label>
+                      <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setCampaignForm({ ...campaignForm, target_group_id: "all" })}
+                          className={`px-2 py-0.5 text-[10px] rounded-md transition font-medium cursor-pointer ${
+                            campaignForm.target_group_id === "all"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          Tất cả ({stats.targetMembers})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (campaignForm.target_group_id === "all" && groups.length > 0) {
+                              setCampaignForm({ ...campaignForm, target_group_id: groups[0].group_id });
+                            }
+                          }}
+                          className={`px-2 py-0.5 text-[10px] rounded-md transition font-medium cursor-pointer ${
+                            campaignForm.target_group_id !== "all"
+                              ? "bg-indigo-600 text-white shadow-sm"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          Từng nhóm
+                        </button>
+                      </div>
+                    </div>
+
+                    {campaignForm.target_group_id === "all" ? (
+                      <div className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 flex items-center justify-between shadow-inner">
+                        <span className="truncate text-slate-200 font-normal">Toàn bộ thành viên sạch các nhóm</span>
+                        <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/15 px-2 py-0.5 rounded-md ml-2 shrink-0">
+                          {stats.targetMembers} người
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <select
+                          value={campaignForm.target_group_id}
+                          onChange={(e) => setCampaignForm({ ...campaignForm, target_group_id: e.target.value })}
+                          className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs font-normal text-slate-200 focus:outline-none transition-colors appearance-none pr-8 cursor-pointer"
+                        >
+                          {groups.map((g) => (
+                            <option key={g.group_id} value={g.group_id} className="bg-slate-950 text-slate-200 py-1">
+                              {g.name} ({g.filtered_member_count} người)
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    )}
                   </div>
 
+                  {/* Col 4: Friend Filter (Neat, clean, lightweight font, no oversized emojis) */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Đối Tượng / Phân Loại Bạn Bè</label>
-                    <select
-                      value={campaignForm.friend_filter || "all"}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, friend_filter: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="all">🌐 Tất cả thành viên thỏa mãn</option>
-                      <option value="friends_first">🤝➡️➕ Mix: Bạn bè trước ➡️ Người lạ sau</option>
-                      <option value="friends_only">🤝 Chỉ gửi người ĐÃ LÀ BẠN BÈ (Tránh bị chặn)</option>
-                      <option value="not_friends_only">➕ Chỉ gửi người CHƯA KẾT BẠN (Tiếp cận mới)</option>
-                    </select>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                        <Filter className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Phân Loại Bạn Bè</span>
+                      </label>
+                      <span className="text-[10px] font-medium text-emerald-400">
+                        {campaignForm.friend_filter === "friends_first"
+                          ? "⚡ Mix"
+                          : campaignForm.friend_filter === "friends_only"
+                          ? "🤝 Bạn bè"
+                          : campaignForm.friend_filter === "not_friends_only"
+                          ? "👤 Người lạ"
+                          : "🌐 Tất cả"}
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <select
+                        value={campaignForm.friend_filter || "all"}
+                        onChange={(e) => setCampaignForm({ ...campaignForm, friend_filter: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs font-normal text-slate-200 focus:outline-none transition-colors appearance-none pr-8 cursor-pointer"
+                      >
+                        <option value="all" className="bg-slate-950 text-slate-200 py-1">🌐 Tất cả thành viên</option>
+                        <option value="friends_first" className="bg-slate-950 text-slate-200 py-1">⚡ Mix: Ưu tiên bạn bè trước ➔ Người lạ sau</option>
+                        <option value="friends_only" className="bg-slate-950 text-slate-200 py-1">🤝 Chỉ gửi người đã là bạn bè (An toàn nhất)</option>
+                        <option value="not_friends_only" className="bg-slate-950 text-slate-200 py-1">👤 Chỉ gửi người chưa kết bạn (Mở rộng mới)</option>
+                      </select>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 truncate">
+                      {campaignForm.friend_filter === "friends_first" && "Gửi hết bạn bè trước, sau đó gửi tới người lạ"}
+                      {campaignForm.friend_filter === "friends_only" && "Chỉ gửi bạn bè để tránh bị Zalo chặn tin lạ"}
+                      {campaignForm.friend_filter === "not_friends_only" && "Chỉ gửi người lạ để tiếp cận khách hàng mới"}
+                      {(!campaignForm.friend_filter || campaignForm.friend_filter === "all") && "Gửi cho tất cả mọi người trong tệp đã chọn"}
+                    </p>
                   </div>
                 </div>
 
@@ -3303,44 +3476,200 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Row 4: Text Content & Live Preview */}
+                {/* Row 4: Text Content with Gemini AI Rewriter & Live Preview */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Nội dung tin nhắn (Chèn <code className="text-blue-400 bg-slate-950 px-1 py-0.5 rounded font-mono">{"{name}"}</code> để cá nhân hóa)
-                    </label>
-                    <textarea
-                      rows={5}
-                      placeholder="Chào bạn {name}, mình gửi bạn đề thi thử môn Toán vào 10 mới nhất nhé..."
-                      value={campaignForm.message_template}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, message_template: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-sans"
-                      required
-                    />
+                  <div className="space-y-2.5">
+                    {/* Header with Title & Token badge */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Nội dung tin nhắn</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">
+                        Chèn <code className="text-blue-400 bg-slate-950 px-1 py-0.5 rounded font-mono">{"{name}"}</code> để cá nhân hóa
+                      </span>
+                    </div>
+
+                    {/* AI Toolbar Ribbon */}
+                    <div className="p-2.5 rounded-xl bg-gradient-to-r from-indigo-950/60 via-slate-900 to-purple-950/50 border border-indigo-800/50 shadow-sm space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-md bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+                            <Sparkles className="w-3 h-3 text-indigo-400" />
+                          </div>
+                          <span className="text-xs font-semibold text-white">Trợ Lý AI Viết Lại</span>
+                        </div>
+
+                        {/* Model selector & Key settings button */}
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={geminiModel}
+                            onChange={(e) => setGeminiModel(e.target.value)}
+                            className="bg-slate-900 border border-indigo-700/60 text-[11px] text-indigo-200 rounded-lg px-2 py-1 focus:outline-none focus:border-indigo-400 font-medium cursor-pointer"
+                            title="Chọn phiên bản mô hình Gemini Flash"
+                          >
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                            <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+                            <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                            <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowAiKeyModal(true)}
+                            className={`px-2 py-1 text-[11px] rounded-lg border transition flex items-center gap-1 cursor-pointer font-medium ${
+                              geminiApiKey
+                                ? "bg-emerald-950/60 border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/60"
+                                : "bg-amber-950/60 border-amber-700/60 text-amber-300 hover:bg-amber-900/60 animate-pulse"
+                            }`}
+                            title="Cài đặt API Key Gemini"
+                          >
+                            <Key className="w-3 h-3" />
+                            <span>{geminiApiKey ? "API Key" : "Nhập Key"}</span>
+                          </button>
+
+                          {aiRewriteHistory.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleUndoAiRewrite}
+                              className="px-2 py-1 text-[11px] rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition flex items-center gap-1 cursor-pointer"
+                              title="Hoàn tác nội dung trước khi AI viết lại"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Hoàn tác</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Quick AI Style Rewrite Chips */}
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <button
+                          type="button"
+                          disabled={isAiRewriting}
+                          onClick={() => handleAiRewrite("Kêu gọi hành động hấp dẫn (Tăng tỷ lệ tương tác & chuyển đổi sales, kích thích trả lời)")}
+                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-indigo-900/50 border border-slate-700/70 hover:border-indigo-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                        >
+                          <Wand2 className="w-3 h-3 text-indigo-400" />
+                          <span>🎯 Viết lại hấp dẫn</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAiRewriting}
+                          onClick={() => handleAiRewrite("Tự nhiên, thân thiện như bạn bè tâm tình trao đổi, không lộ liễu mùi quảng cáo")}
+                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-emerald-900/50 border border-slate-700/70 hover:border-emerald-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                        >
+                          <span>💬 Thân thiện & Tự nhiên</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAiRewriting}
+                          onClick={() => handleAiRewrite("Cực kỳ ngắn gọn, súc tích dưới 3 câu, vào thẳng vấn đề để đọc nhanh trên thông báo Zalo")}
+                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-amber-900/50 border border-slate-700/70 hover:border-amber-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                        >
+                          <span>⚡ Ngắn gọn súc tích</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAiRewriting}
+                          onClick={() => handleAiRewrite("Tặng quà, chia sẻ tài liệu hữu ích miễn phí để tạo thiện cảm và thu hút người nhận")}
+                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-pink-900/50 border border-slate-700/70 hover:border-pink-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                        >
+                          <span>🎁 Tặng quà / Chia sẻ</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowAiCustomPrompt(!showAiCustomPrompt)}
+                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-slate-800 border border-slate-700/70 text-slate-400 hover:text-slate-200 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>⚙️ Tự nhập prompt</span>
+                        </button>
+                      </div>
+
+                      {/* Custom Prompt Drawer */}
+                      {showAiCustomPrompt && (
+                        <div className="p-2.5 bg-slate-950/90 border border-indigo-800/60 rounded-xl space-y-1.5 animate-fadeIn">
+                          <label className="block text-[11px] text-indigo-300 font-medium">
+                            Yêu cầu cụ thể cho AI (vd: &quot;Văn phong hài hước dí dỏm&quot;, &quot;Nhấn mạnh tặng bộ đề thi độc quyền hôm nay&quot;):
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Nhập phong cách hoặc chỉ dẫn bạn muốn..."
+                              value={customAiPrompt}
+                              onChange={(e) => setCustomAiPrompt(e.target.value)}
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              disabled={isAiRewriting || !customAiPrompt.trim()}
+                              onClick={() => handleAiRewrite(customAiPrompt)}
+                              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-1 shadow-sm"
+                            >
+                              {isAiRewriting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                              <span>Viết</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Status / Notice */}
+                      {isAiRewriting && (
+                        <div className="p-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs flex items-center gap-2 animate-pulse">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400 shrink-0" />
+                          <span>Gemini AI ({geminiModel}) đang suy nghĩ và viết lại tin nhắn cho bạn...</span>
+                        </div>
+                      )}
+
+                      {aiNotice && (
+                        <div className={`p-2 rounded-lg text-xs flex items-center justify-between ${
+                          aiNotice.isError ? "bg-red-500/15 border border-red-500/30 text-red-300" : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                        }`}>
+                          <span>{aiNotice.text}</span>
+                          <button type="button" onClick={() => setAiNotice(null)} className="text-slate-400 hover:text-white text-xs ml-2 cursor-pointer">✕</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Textarea */}
+                    <div className="relative">
+                      <textarea
+                        rows={6}
+                        placeholder="Chào bạn {name}, mình gửi bạn đề thi thử môn Toán vào 10 mới nhất nhé..."
+                        value={campaignForm.message_template}
+                        onChange={(e) => setCampaignForm({ ...campaignForm, message_template: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700/80 hover:border-slate-600 focus:border-blue-500 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors font-sans leading-relaxed"
+                        required
+                      />
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
+                        <span>Hệ thống tự động thay thế <code className="text-blue-400 font-mono">{"{name}"}</code> bằng tên thật người nhận.</span>
+                        <span>{campaignForm.message_template?.length || 0} ký tự</span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Live Preview Box */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-400 mb-2">
                       Xem trước tin nhắn Zalo gửi đi (Live Preview)
                     </label>
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2 max-h-[160px] overflow-y-auto">
+                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2 max-h-[300px] overflow-y-auto">
                       {campaignForm.image_url && (
-                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-28">
+                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
                           <img
                             src={uploadedMediaInfo?.previewUrl || campaignForm.image_url}
                             alt="Preview"
-                            className="w-full h-28 object-cover"
+                            className="w-full h-36 object-cover"
                             onError={(e: any) => { e.target.style.display = 'none'; }}
                           />
                         </div>
                       )}
                       {campaignForm.video_url && (
-                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-32">
+                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
                           <video
                             src={uploadedMediaInfo?.previewUrl || campaignForm.video_url}
                             controls
-                            className="w-full max-h-32 object-contain bg-black"
+                            className="w-full max-h-36 object-contain bg-black"
                           />
                         </div>
                       )}
@@ -3357,7 +3686,7 @@ export default function Home() {
                           </div>
                         </div>
                       )}
-                      <div className="text-slate-200 whitespace-pre-line">
+                      <div className="text-slate-200 whitespace-pre-line leading-relaxed">
                         {campaignForm.message_template
                           ? campaignForm.message_template.replace("{name}", "Thanh Loan")
                           : "(Nội dung tin nhắn sẽ hiển thị tại đây...)"}
@@ -3644,6 +3973,81 @@ export default function Home() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* Gemini AI Settings Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-indigo-400" />
+                  Cấu Hình Trợ Lý AI Viết Lại Tin Nhắn (Google Gemini)
+                </h3>
+                <span className="text-[11px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2.5 py-0.5 rounded-full font-medium">
+                  {geminiApiKey ? "🟢 Đã thiết lập Key" : "🟡 Chưa có Key"}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed mb-4">
+                Tích hợp mô hình ngôn ngữ lớn Google Gemini để tự động viết lại tin nhắn tiếp thị theo nhiều phong cách (hấp dẫn, tự nhiên, ngắn gọn, tặng quà), tự động bảo tồn biến <code className="text-blue-400 font-mono">{"{name}"}</code> cho chiến dịch Zalo.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Google Gemini API Key
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      placeholder="Dán mã API Key: AIzaSy..."
+                      value={tempGeminiKey}
+                      onChange={(e) => setTempGeminiKey(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveGeminiKey}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20 shrink-0"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Lưu Key</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between mt-1 text-[11px]">
+                    <span className="text-slate-500">Key được lưu trữ an toàn trong trình duyệt & Cloud Firestore.</span>
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-400 hover:underline flex items-center gap-1"
+                    >
+                      Lấy API Key miễn phí tại Google AI Studio <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Phiên Bản Mô Hình Gemini Flash Ưu Tiên
+                  </label>
+                  <select
+                    value={geminiModel}
+                    onChange={(e) => {
+                      setGeminiModel(e.target.value);
+                      if (typeof window !== "undefined") {
+                        localStorage.setItem("zalo_gemini_model", e.target.value);
+                      }
+                      setSettings({ ...settings, gemini_model: e.target.value });
+                    }}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash (Nhanh & Tối ưu)</option>
+                    <option value="gemini-3.6-flash">Gemini 3.6 Flash (Sáng tạo & Mượt mà)</option>
+                    <option value="gemini-3.7-flash">Gemini 3.7 Flash (Mới nhất & Chuẩn xác)</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Mô hình mở rộng)</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -4022,6 +4426,98 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: GEMINI API KEY SETUP ================= */}
+      {showAiKeyModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <span>Cấu Hình Google Gemini API Key</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAiKeyModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Google Gemini API Key được dùng để kích hoạt tính năng viết lại nội dung tin nhắn tiếp thị bằng AI (Gemini 3.5 Flash, 3.6 Flash, 3.7 Flash, 3.8 Flash) với khả năng giữ nguyên biến <code className="text-blue-400 font-mono">{"{name}"}</code>.
+              </p>
+
+              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-300 space-y-1">
+                <div className="font-semibold flex items-center gap-1">
+                  <span>🎁 Hoàn toàn miễn phí:</span>
+                </div>
+                <div>
+                  Bạn có thể lấy API Key hoàn toàn miễn phí từ Google AI Studio tại:
+                </div>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-blue-400 hover:underline font-mono pt-1"
+                >
+                  https://aistudio.google.com/app/apikey <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Gemini API Key của bạn:
+                </label>
+                <input
+                  type="password"
+                  placeholder="AIzaSy..."
+                  value={tempGeminiKey}
+                  onChange={(e) => setTempGeminiKey(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 font-mono focus:outline-none focus:border-indigo-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Mô hình Gemini ưu tiên:
+                </label>
+                <select
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="gemini-3.5-flash">Gemini 3.5 Flash (Nhanh & Tối ưu)</option>
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (Sáng tạo & Mượt mà)</option>
+                  <option value="gemini-3.7-flash">Gemini 3.7 Flash (Mới nhất & Chuẩn xác)</option>
+                  <option value="gemini-3.8-flash">Gemini 3.8 Flash (Mô hình mở rộng)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowAiKeyModal(false)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveGeminiKey}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer shadow-md shadow-indigo-600/20 flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Lưu API Key</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
