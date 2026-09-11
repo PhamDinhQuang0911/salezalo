@@ -717,7 +717,7 @@
         "operation": "sendFriendRequest",
         "useSession": true,
         "connectToId": "717682179432150574",
-        "userId": "={{ $json.zaloId || $('Vòng Lặp Từng Lời Mời').item.json.zaloId }}"
+        "userId": "={{ $json.zaloId }}"
       },
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
