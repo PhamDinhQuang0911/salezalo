@@ -367,3 +367,27 @@ export async function getStats() {
     total_accounts: accountsSnap.size,
   };
 }
+
+export async function batchUpdateMembersFriendStatus(updates: { zaloId: string; isFriend: number }[]) {
+  if (!updates || updates.length === 0) return 0;
+
+  const CHUNK_SIZE = 450;
+  let updatedCount = 0;
+
+  for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+    const chunk = updates.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(firestore);
+    for (const item of chunk) {
+      const docRef = doc(firestore, collections.members, String(item.zaloId));
+      batch.update(docRef, {
+        is_friend: item.isFriend,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    await batch.commit();
+    updatedCount += chunk.length;
+  }
+
+  return updatedCount;
+}
+

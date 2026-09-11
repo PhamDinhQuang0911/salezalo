@@ -61,7 +61,10 @@ import {
   clientTriggerScrape,
   clientTriggerSendCampaign,
   clientImportZaloData,
+  uploadMediaFile,
+  clientSyncFriendStatus,
 } from "@/lib/client-api";
+
 
 export default function Home() {
   // Tab navigation: "overview" is now on the far left!
@@ -130,6 +133,21 @@ export default function Home() {
   });
   const [isSubmittingCampaign, setIsSubmittingCampaign] = useState(false);
   const [campaignNotice, setCampaignNotice] = useState("");
+
+  // Media Direct Upload for Campaign (Images & Low-size Videos)
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [mediaUploadError, setMediaUploadError] = useState("");
+  const [uploadedMediaInfo, setUploadedMediaInfo] = useState<{
+    name: string;
+    size: number;
+    mediaType: "image" | "video";
+    previewUrl: string;
+  } | null>(null);
+
+  // Friend Status Sync (via n8n getAllFriends & getSentFriendRequest)
+  const [isSyncingFriends, setIsSyncingFriends] = useState(false);
+  const [friendSyncNotice, setFriendSyncNotice] = useState("");
+
 
   // Settings Tab
   const [settings, setSettings] = useState<any>({
@@ -520,8 +538,103 @@ export default function Home() {
     }
   };
 
+  const handleMediaFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, expectedType?: "image" | "video") => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ""; // Reset input so user can re-pick same file if desired
+
+    setMediaUploadError("");
+    setIsUploadingMedia(true);
+
+    try {
+      const result = await uploadMediaFile(file);
+      setUploadedMediaInfo({
+        name: result.name,
+        size: result.size,
+        mediaType: result.mediaType,
+        previewUrl: result.base64 || result.url,
+      });
+
+      if (result.mediaType === "image") {
+        setCampaignForm((prev) => ({
+          ...prev,
+          image_url: result.url,
+          video_url: "", // clear video if image selected
+        }));
+      } else {
+        setCampaignForm((prev) => ({
+          ...prev,
+          video_url: result.url,
+          image_url: "", // clear image if video selected
+        }));
+      }
+    } catch (err: any) {
+      console.error("Media upload error:", err);
+      setMediaUploadError(err.message || "Lỗi tải tệp lên");
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  const handleRemoveMedia = () => {
+    setUploadedMediaInfo(null);
+    setMediaUploadError("");
+    setCampaignForm((prev) => ({
+      ...prev,
+      image_url: "",
+      video_url: "",
+    }));
+  };
+
+  const handleSyncFriendStatus = async () => {
+    if (isSyncingFriends) return;
+
+    const defaultPhone = accounts.length > 0 ? accounts[0].phone : "";
+    const confirmMsg = `Hệ thống sẽ kết nối với n8n để lấy danh sách bạn bè & lời mời kết bạn từ tài khoản Zalo${
+      defaultPhone ? ` (${defaultPhone})` : ""
+    }, sau đó tự động đối soát và cập nhật trạng thái bạn bè cho toàn bộ thành viên đã cào trong hệ thống.\n\nBạn có muốn tiếp tục?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsSyncingFriends(true);
+    setFriendSyncNotice("Đang kết nối n8n và đối soát trạng thái bạn bè...");
+
+    try {
+      const res = await clientSyncFriendStatus(defaultPhone);
+      setFriendSyncNotice(res.message);
+      await fetchMembers(memberPagination.page);
+      await fetchStats();
+      setTimeout(() => setFriendSyncNotice(""), 8000);
+    } catch (err: any) {
+      console.error("Sync friend status error:", err);
+      setFriendSyncNotice(`Lỗi đồng bộ: ${err.message || err}`);
+      setTimeout(() => setFriendSyncNotice(""), 8000);
+    } finally {
+      setIsSyncingFriends(false);
+    }
+  };
+
   const handleEditCampaign = (c: any) => {
     setEditingCampaignId(c.id);
+    setMediaUploadError("");
+    if (c.image_url) {
+      setUploadedMediaInfo({
+        name: "Hình ảnh đính kèm",
+        size: 0,
+        mediaType: "image",
+        previewUrl: c.image_url,
+      });
+    } else if (c.video_url) {
+      setUploadedMediaInfo({
+        name: "Video đính kèm",
+        size: 0,
+        mediaType: "video",
+        previewUrl: c.video_url,
+      });
+    } else {
+      setUploadedMediaInfo(null);
+    }
+
     setCampaignForm({
       name: c.name || "",
       message_template: c.message_template || "",
@@ -540,6 +653,8 @@ export default function Home() {
 
   const handleCancelEditCampaign = () => {
     setEditingCampaignId(null);
+    setUploadedMediaInfo(null);
+    setMediaUploadError("");
     setCampaignForm({
       name: "",
       message_template: "",
@@ -554,6 +669,7 @@ export default function Home() {
       cta_link: "",
     });
   };
+
 
   const handleDeleteCampaign = async (campaignId: any) => {
     if (!confirm("Bạn có chắc chắn muốn xóa chiến dịch này?")) return;
@@ -997,6 +1113,20 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                      <button
+                        onClick={handleSyncFriendStatus}
+                        disabled={isSyncingFriends}
+                        className="text-xs text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-medium transition-all shadow-sm shadow-emerald-950"
+                        title="Đối soát danh sách bạn bè & lời mời kết bạn từ Zalo qua n8n để cập nhật biểu tượng 🤝 Bạn bè"
+                      >
+                        {isSyncingFriends ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                        ) : (
+                          <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        )}
+                        <span>{isSyncingFriends ? "Đang đồng bộ..." : "Đồng Bộ Bạn Bè"}</span>
+                      </button>
+
                       {selectedGroupObj && (
                         <button
                           onClick={() => handleEditGroup(selectedGroupObj)}
@@ -1039,6 +1169,14 @@ export default function Home() {
                       )}
                     </div>
                   </div>
+
+                  {friendSyncNotice && (
+                    <div className="mt-3 p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/50 text-xs text-emerald-300 flex items-center gap-2.5 animate-fadeIn shadow-sm">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="font-medium">{friendSyncNotice}</span>
+                    </div>
+                  )}
+
 
                   {/* Filter Selectors */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-3">
@@ -1819,49 +1957,173 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Row 3: Rich Media */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-                      <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Link Hình Ảnh (Image URL)</span>
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://example.com/banner.jpg"
-                      value={campaignForm.image_url}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, image_url: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                {/* Row 3: Rich Media Upload & Link */}
+                <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-cyan-400 flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4" />
+                      <span>Đính Kèm Đa Phương Tiện (Ảnh Trực Tiếp / Video Nhẹ / Link)</span>
+                    </div>
+                    {isUploadingMedia && (
+                      <span className="text-xs text-blue-400 flex items-center gap-1.5 animate-pulse font-medium">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Đang tải & tối ưu tệp media...</span>
+                      </span>
+                    )}
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-                      <Video className="w-3.5 h-3.5 text-rose-400" />
-                      <span>Link Video (Video URL)</span>
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://example.com/video.mp4"
-                      value={campaignForm.video_url}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, video_url: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                  {mediaUploadError && (
+                    <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-800/40 text-xs text-red-300 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>{mediaUploadError}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Col 1: Hình Ảnh */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-cyan-400">
+                          <ImageIcon className="w-3.5 h-3.5" />
+                          <span>1. Hình Ảnh (Image)</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500">JPG, PNG &lt; 5MB</span>
+                      </label>
+
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 text-slate-200 hover:text-white border border-slate-700 hover:border-cyan-500/50 rounded-xl px-3 py-2 text-xs cursor-pointer transition-all shadow-sm">
+                          <UploadCloud className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Chọn Ảnh Từ Máy</span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => handleMediaFileUpload(e, "image")}
+                            disabled={isUploadingMedia}
+                          />
+                        </label>
+                      </div>
+
+                      <input
+                        type="url"
+                        placeholder="Hoặc dán link ảnh: https://.../img.jpg"
+                        value={campaignForm.image_url}
+                        onChange={(e) => {
+                          setCampaignForm({ ...campaignForm, image_url: e.target.value, video_url: "" });
+                          if (e.target.value) {
+                            setUploadedMediaInfo({
+                              name: "Link ảnh ngoài",
+                              size: 0,
+                              mediaType: "image",
+                              previewUrl: e.target.value,
+                            });
+                          } else if (uploadedMediaInfo?.mediaType === "image") {
+                            setUploadedMediaInfo(null);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-slate-750 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
+                      />
+                    </div>
+
+                    {/* Col 2: Video */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-rose-400">
+                          <Video className="w-3.5 h-3.5" />
+                          <span>2. Video Nhẹ (Dung lượng thấp)</span>
+                        </span>
+                        <span className="text-[10px] text-amber-400 font-semibold">Tối đa 15MB</span>
+                      </label>
+
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 text-slate-200 hover:text-white border border-slate-700 hover:border-rose-500/50 rounded-xl px-3 py-2 text-xs cursor-pointer transition-all shadow-sm">
+                          <UploadCloud className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Chọn Video Từ Máy</span>
+                          <input
+                            type="file"
+                            accept="video/mp4,video/webm,video/quicktime"
+                            className="hidden"
+                            onChange={(e) => handleMediaFileUpload(e, "video")}
+                            disabled={isUploadingMedia}
+                          />
+                        </label>
+                      </div>
+
+                      <input
+                        type="url"
+                        placeholder="Hoặc dán link video: https://.../video.mp4"
+                        value={campaignForm.video_url}
+                        onChange={(e) => {
+                          setCampaignForm({ ...campaignForm, video_url: e.target.value, image_url: "" });
+                          if (e.target.value) {
+                            setUploadedMediaInfo({
+                              name: "Link video ngoài",
+                              size: 0,
+                              mediaType: "video",
+                              previewUrl: e.target.value,
+                            });
+                          } else if (uploadedMediaInfo?.mediaType === "video") {
+                            setUploadedMediaInfo(null);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-slate-750 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 font-mono"
+                      />
+                    </div>
+
+                    {/* Col 3: Link Web / CTA */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-blue-400">
+                          <LinkIcon className="w-3.5 h-3.5" />
+                          <span>3. Nút Kêu Gọi / CTA (Tuỳ chọn)</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500">Website URL</span>
+                      </label>
+
+                      <div className="pt-0.5">
+                        <input
+                          type="url"
+                          placeholder="https://yourlandingpage.com"
+                          value={campaignForm.cta_link}
+                          onChange={(e) => setCampaignForm({ ...campaignForm, cta_link: e.target.value })}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-tight">
+                        Tự động chèn link kêu gọi hành động vào cuối tin nhắn.
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
-                      <LinkIcon className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Link Web / CTA (Action URL)</span>
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://yourlandingpage.com"
-                      value={campaignForm.cta_link}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, cta_link: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                  </div>
+                  {/* Active Media Badge */}
+                  {(campaignForm.image_url || campaignForm.video_url || uploadedMediaInfo) && (
+                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-750 flex items-center justify-between text-xs text-slate-200">
+                      <div className="flex items-center gap-2.5 truncate">
+                        {campaignForm.video_url || uploadedMediaInfo?.mediaType === "video" ? (
+                          <Video className="w-4 h-4 text-rose-400 shrink-0" />
+                        ) : (
+                          <ImageIcon className="w-4 h-4 text-cyan-400 shrink-0" />
+                        )}
+                        <span className="font-medium truncate">
+                          Đã chọn {campaignForm.video_url || uploadedMediaInfo?.mediaType === "video" ? "Video:" : "Ảnh:"}{" "}
+                          {uploadedMediaInfo?.name || "Tệp đính kèm"}
+                        </span>
+                        {uploadedMediaInfo?.size ? (
+                          <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded font-mono">
+                            {(uploadedMediaInfo.size / (1024 * 1024)).toFixed(2)} MB
+                          </span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveMedia}
+                        className="text-slate-400 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
+                        title="Xóa tệp đính kèm"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Row 4: Text Content & Live Preview */}
@@ -1885,10 +2147,24 @@ export default function Home() {
                     <label className="block text-xs font-medium text-slate-400 mb-1">
                       Xem trước tin nhắn Zalo gửi đi (Live Preview)
                     </label>
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2 max-h-[140px] overflow-y-auto">
+                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2 max-h-[160px] overflow-y-auto">
                       {campaignForm.image_url && (
-                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-24">
-                          <img src={campaignForm.image_url} alt="Preview" className="w-full h-24 object-cover" onError={(e: any) => { e.target.style.display = 'none'; }} />
+                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-28">
+                          <img
+                            src={uploadedMediaInfo?.previewUrl || campaignForm.image_url}
+                            alt="Preview"
+                            className="w-full h-28 object-cover"
+                            onError={(e: any) => { e.target.style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                      {campaignForm.video_url && (
+                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-32">
+                          <video
+                            src={uploadedMediaInfo?.previewUrl || campaignForm.video_url}
+                            controls
+                            className="w-full max-h-32 object-contain bg-black"
+                          />
                         </div>
                       )}
                       <div className="text-slate-200 whitespace-pre-line">
@@ -1906,6 +2182,7 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+
 
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-xs text-slate-400">

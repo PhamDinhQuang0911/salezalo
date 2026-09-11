@@ -144,7 +144,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst imageUrl = body.message?.imageUrl || '';\nconst videoUrl = body.message?.videoUrl || '';\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaLink) {\n    personalized += '\\n\\n👉 Xem thêm tại: ' + ctaLink;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      imageUrl: imageUrl,\n      videoUrl: videoUrl\n    }\n  };\n});"
+        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : 'none'));\nconst imageUrl = body.message?.imageUrl || '';\nconst videoUrl = body.message?.videoUrl || '';\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaLink) {\n    personalized += '\\n\\n👉 Xem thêm tại: ' + ctaLink;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      imageUrl: imageUrl,\n      videoUrl: videoUrl\n    }\n  };\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -250,52 +250,13 @@
     },
     {
       "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "useSession": true,
-        "connectToId": "717682179432150574",
-        "noticeUserId": "",
-        "noticeUserIdSupport": "",
-        "threadType": 0,
-        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || $json.memberIds?.[0] || '' }}",
-        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || $json.message || '' }}",
-        "messageFormat": "plain",
-        "urgency": 0,
-        "sendTypingEvent": true,
-        "attachmentType": "binary",
-        "attachmentMode": "image",
-        "binaryPropertyName": "data",
-        "fileName": "",
-        "mentions": {},
-        "reaction": {},
-        "quote": {},
-        "styles": {},
-        "ttl": 0
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        700,
-        150
-      ],
-      "id": "2b9f7007-89e4-45be-b952-ef3f37e06c51",
-      "name": "Gửi tin nhắn thông qua UID",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
         "amount": "={{ $json.delaySeconds || $('Vòng Lặp Từng Thành Viên').item.json.delaySeconds || 15 }}",
         "unit": "seconds"
       },
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        950,
+        1420,
         150
       ],
       "id": "node-wait-antispam",
@@ -346,7 +307,7 @@
       "typeVersion": 1,
       "position": [
         -300,
-        450
+        650
       ],
       "id": "0934ac38-1e63-46b2-ab24-9c17cf67f78a",
       "name": "Lấy danh sách bạn bè",
@@ -367,7 +328,7 @@
       "typeVersion": 1,
       "position": [
         -50,
-        450
+        650
       ],
       "id": "5dbbd7d6-8888-403f-a020-2a38bd230538",
       "name": "Lấy danh sách lời mời đã gửi",
@@ -398,6 +359,242 @@
           "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-img",
+              "leftValue": "={{ $json.imageUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        150
+      ],
+      "id": "node-if-has-image",
+      "name": "Kiểm Tra Có Ảnh Không?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.imageUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        50
+      ],
+      "id": "node-http-download-image",
+      "name": "Tải Ảnh Đính Kèm",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || '' }}",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "binary",
+        "attachmentMode": "image",
+        "binaryPropertyName": "data",
+        "fileName": "",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        50
+      ],
+      "id": "node-zalo-send-image-msg",
+      "name": "Gửi Tin Nhắn Kèm Ảnh",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-video",
+              "leftValue": "={{ $json.videoUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        920,
+        250
+      ],
+      "id": "node-if-has-video",
+      "name": "Kiểm Tra Có Video Không?"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendVideo",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "videoUrl": "={{ $json.videoUrl }}",
+        "thumbnailUrl": "={{ $json.imageUrl || '' }}"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        180
+      ],
+      "id": "node-zalo-send-video",
+      "name": "Gửi Video Zalo",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $json.zaloId || $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "message": "={{ $json.personalizedMessage || $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage || '' }}",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "none",
+        "attachmentMode": "auto",
+        "binaryPropertyName": "data",
+        "fileName": "",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        310
+      ],
+      "id": "node-zalo-send-text-msg",
+      "name": "Gửi Tin Nhắn Văn Bản",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zalo-sync-friends",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        650
+      ],
+      "id": "node-webhook-sync-friends",
+      "name": "Webhook Đồng Bộ Bạn Bè",
+      "webhookId": "webhook-sync-friends"
+    },
+    {
+      "parameters": {
+        "jsCode": "const friendsItems = $('Lấy danh sách bạn bè').all();\nconst sentItems = $('Lấy danh sách lời mời đã gửi').all();\n\nconst friendIds = [];\nfor (const item of friendsItems) {\n  const d = item.json;\n  const uid = d.userId || d.id || d.zaloId || d.uid;\n  if (uid) friendIds.push(String(uid));\n}\n\nconst pendingIds = [];\nfor (const item of sentItems) {\n  const d = item.json;\n  const uid = d.userId || d.id || d.zaloId || d.uid;\n  if (uid) pendingIds.push(String(uid));\n}\n\nreturn [{\n  json: {\n    success: true,\n    totalFriends: friendIds.length,\n    totalPending: pendingIds.length,\n    friendIds: friendIds,\n    pendingIds: pendingIds,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        650
+      ],
+      "id": "node-code-summarize-friends",
+      "name": "Tổng Hợp Trạng Thái Bạn Bè"
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        450,
+        650
+      ],
+      "id": "node-respond-to-webhook-sync-friends",
+      "name": "Trả Kết Quả Đồng Bộ Về Web App"
     }
   ],
   "pinData": {},
@@ -509,7 +706,7 @@
         ],
         [
           {
-            "node": "Gửi tin nhắn thông qua UID",
+            "node": "Kiểm Tra Có Ảnh Không?",
             "type": "main",
             "index": 0
           }
@@ -531,18 +728,7 @@
       "main": [
         [
           {
-            "node": "Gửi tin nhắn thông qua UID",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gửi tin nhắn thông qua UID": {
-      "main": [
-        [
-          {
-            "node": "Giãn Cách Chống Spam",
+            "node": "Kiểm Tra Có Ảnh Không?",
             "type": "main",
             "index": 0
           }
@@ -597,7 +783,109 @@
       "main": [
         [
           {
-            "node": "Lấy trạng thái lời mời kết bạn",
+            "node": "Tổng Hợp Trạng Thái Bạn Bè",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm Tra Có Ảnh Không?": {
+      "main": [
+        [
+          {
+            "node": "Tải Ảnh Đính Kèm",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kiểm Tra Có Video Không?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tải Ảnh Đính Kèm": {
+      "main": [
+        [
+          {
+            "node": "Gửi Tin Nhắn Kèm Ảnh",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm Tra Có Video Không?": {
+      "main": [
+        [
+          {
+            "node": "Gửi Video Zalo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gửi Tin Nhắn Văn Bản",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi Tin Nhắn Kèm Ảnh": {
+      "main": [
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi Video Zalo": {
+      "main": [
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi Tin Nhắn Văn Bản": {
+      "main": [
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Đồng Bộ Bạn Bè": {
+      "main": [
+        [
+          {
+            "node": "Lấy danh sách bạn bè",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tổng Hợp Trạng Thái Bạn Bè": {
+      "main": [
+        [
+          {
+            "node": "Trả Kết Quả Đồng Bộ Về Web App",
             "type": "main",
             "index": 0
           }

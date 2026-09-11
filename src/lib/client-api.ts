@@ -20,8 +20,12 @@ import {
   getAccountByPhone,
   getSettings,
   updateSettings,
+  batchUpdateMembersFriendStatus,
 } from "./firestore-db";
 import { processZaloData } from "./zalo-processor";
+import { storage } from "./firebase";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+
 
 export async function clientGetStats() {
   const stats = await getStats();
@@ -279,12 +283,17 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     );
   }
 
+  const isVideo = Boolean(campaign.video_url);
+  const isImage = Boolean(campaign.image_url) && !isVideo;
+  const mediaType = isVideo ? "video" : isImage ? "image" : "none";
+
   const payload = {
     campaignId: campaign.id,
     campaignName: campaign.name,
     senderAccountPhone: campaign.account_phone || "",
     message: {
       text: campaign.message_template,
+      mediaType: mediaType,
       imageUrl: campaign.image_url || "",
       videoUrl: campaign.video_url || "",
       ctaLink: campaign.cta_link || "",
@@ -339,6 +348,150 @@ export async function clientTriggerSendCampaign(campaignId: string) {
   };
 }
 
+export interface UploadMediaResult {
+  url: string;
+  name: string;
+  size: number;
+  type: string;
+  mediaType: "image" | "video";
+  base64?: string;
+}
+
+export async function uploadMediaFile(file: File): Promise<UploadMediaResult> {
+  const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
+  const isImage = file.type.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.name);
+
+  if (!isImage && !isVideo) {
+    throw new Error("Định dạng tệp không được hỗ trợ. Vui lòng chọn ảnh (JPG, PNG, WebP) hoặc video (MP4, WebM).");
+  }
+
+  // Size limit validation: Video < 15MB, Image < 5MB
+  if (isVideo && file.size > 15 * 1024 * 1024) {
+    throw new Error(`Video quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn video dưới 15MB để đảm bảo Zalo và n8n gửi mượt mà không bị nghẽn mạng.`);
+  }
+  if (isImage && file.size > 5 * 1024 * 1024) {
+    throw new Error(`Hình ảnh quá lớn (${(file.size / (1024 * 1024)).toFixed(1)} MB). Vui lòng chọn ảnh dưới 5MB.`);
+  }
+
+  const mediaType: "image" | "video" = isVideo ? "video" : "image";
+  const ext = file.name.split(".").pop() || (isVideo ? "mp4" : "jpg");
+  const fileName = `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  const storagePath = `campaign_media/${fileName}`;
+
+  // Generate Base64 for instant local preview and fallback
+  const base64 = await new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(file);
+  });
+
+  try {
+    const storageRef = ref(storage, storagePath);
+    const snap = await uploadBytesResumable(storageRef, file, {
+      contentType: file.type || (isVideo ? "video/mp4" : "image/jpeg"),
+    });
+    const url = await getDownloadURL(snap.ref);
+    return {
+      url,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      mediaType,
+      base64,
+    };
+  } catch (err: any) {
+    console.warn("Firebase Storage upload fallback to Data URL Base64:", err);
+    return {
+      url: base64,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      mediaType,
+      base64,
+    };
+  }
+}
+
+export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOverride?: string) {
+  let syncWebhookUrl = webhookUrlOverride || "";
+
+  if (!syncWebhookUrl && accountPhone) {
+    const acc = await getAccountByPhone(accountPhone);
+    syncWebhookUrl = (acc as any)?.sync_webhook_url || "";
+  }
+
+  if (!syncWebhookUrl) {
+    const settings = await getSettings();
+    syncWebhookUrl = (settings as any)?.n8n_sync_webhook || "https://n8n.qmath.io.vn/webhook/zalo-sync-friends";
+  }
+
+  if (!syncWebhookUrl.startsWith("http")) {
+    throw new Error("Chưa cấu hình URL Webhook đồng bộ bạn bè trên n8n.");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  const resp = await fetch(syncWebhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      accountPhone: accountPhone || "",
+      action: "sync_friends",
+      timestamp: new Date().toISOString(),
+    }),
+    signal: controller.signal,
+  });
+  clearTimeout(timeoutId);
+
+  if (!resp.ok) {
+    throw new Error(`Lỗi kết nối n8n Webhook: ${resp.status} ${resp.statusText}`);
+  }
+
+  const data = await resp.json();
+  const friendIds = new Set<string>((data.friendIds || []).map(String));
+  const pendingIds = new Set<string>((data.pendingIds || []).map(String));
+
+  // Query all members to cross-reference
+  const { members } = await getMembers({ limit: 10000 });
+  const updates: { zaloId: string; isFriend: number }[] = [];
+  let matchedFriends = 0;
+  let matchedPending = 0;
+
+  for (const m of members) {
+    const zid = String(m.zalo_id || m.id);
+    let newStatus = 0;
+    if (friendIds.has(zid)) {
+      newStatus = 1; // 🤝 Đã là bạn bè
+      matchedFriends++;
+    } else if (pendingIds.has(zid)) {
+      newStatus = 2; // ⏳ Đã gửi lời mời
+      matchedPending++;
+    } else {
+      newStatus = 0; // Chưa kết bạn
+    }
+
+    if (m.is_friend !== newStatus) {
+      updates.push({ zaloId: zid, isFriend: newStatus });
+    }
+  }
+
+  const updatedCount = await batchUpdateMembersFriendStatus(updates);
+
+  return {
+    success: true,
+    totalScrapedMembers: members.length,
+    totalZaloFriends: friendIds.size,
+    totalZaloPending: pendingIds.size,
+    matchedFriends,
+    matchedPending,
+    updatedCount,
+    message: `Đã đối soát xong ${members.length} thành viên: Tìm thấy ${matchedFriends} bạn bè (🤝) và ${matchedPending} lời mời đang chờ (⏳).`,
+  };
+}
+
 export async function clientImportZaloData(payload: any) {
   return await processZaloData(payload);
 }
+
