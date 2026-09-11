@@ -369,6 +369,7 @@ export async function clientTriggerSendCampaign(campaignId: string) {
   const mediaType = isVideo ? "video" : isDoc ? "document" : isImage ? "image" : "none";
 
   const payload = {
+    action: "send_campaign",
     campaignId: campaign.id,
     campaignName: campaign.name,
     senderAccountPhone: campaign.account_phone || "",
@@ -534,16 +535,16 @@ export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOv
 
   if (!syncWebhookUrl && accountPhone) {
     const acc = await getAccountByPhone(accountPhone);
-    syncWebhookUrl = (acc as any)?.sync_webhook_url || "";
+    syncWebhookUrl = (acc as any)?.sync_webhook_url || (acc as any)?.scrape_webhook_url || "";
   }
 
   if (!syncWebhookUrl) {
     const settings = await getSettings();
-    syncWebhookUrl = (settings as any)?.n8n_sync_webhook || "https://n8n.qmath.io.vn/webhook/zalo-sync-friends";
+    syncWebhookUrl = (settings as any)?.n8n_sync_webhook || (settings as any)?.n8n_scrape_webhook || "https://n8n.qmath.io.vn/webhook/zalo-sync-friends";
   }
 
   if (!syncWebhookUrl.startsWith("http")) {
-    throw new Error("Chưa cấu hình URL Webhook đồng bộ bạn bè trên n8n.");
+    throw new Error("Chưa cấu hình URL Webhook đồng bộ bạn bè hoặc Webhook Cào trên n8n.");
   }
 
   const { resp, responseData } = await callN8nWebhook(syncWebhookUrl, {
@@ -621,12 +622,12 @@ export async function clientTriggerSendFriendRequests(params: {
   let friendWebhookUrl = "";
   if (params.accountPhone) {
     const acc = await getAccountByPhone(params.accountPhone);
-    friendWebhookUrl = (acc as any)?.friend_webhook_url || "";
+    friendWebhookUrl = (acc as any)?.friend_webhook_url || (acc as any)?.send_webhook_url || "";
   }
 
   if (!friendWebhookUrl) {
     const settings = await getSettings();
-    friendWebhookUrl = (settings as any)?.n8n_friend_webhook || "https://n8n.qmath.io.vn/webhook/zalo-send-friend-requests";
+    friendWebhookUrl = (settings as any)?.n8n_friend_webhook || (settings as any)?.n8n_send_webhook || "https://n8n.qmath.io.vn/webhook/zalo-send-friend-requests";
   }
 
   const payload = {

@@ -748,6 +748,72 @@
       ],
       "id": "node-wait-friend-delay",
       "name": "Chờ Random 15-30s Kết Bạn"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c_sync",
+              "leftValue": "={{ $json.body?.action || $json.action || '' }}",
+              "rightValue": "sync_friends",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -680,
+        -300
+      ],
+      "id": "router-scrape-sync-01",
+      "name": "Phân Luồng Cào Hoặc Đồng Bộ"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c_friend",
+              "leftValue": "={{ $json.body?.action || $json.action || '' }}",
+              "rightValue": "send_friend_requests",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -680,
+        150
+      ],
+      "id": "router-send-friend-02",
+      "name": "Phân Luồng Gửi Tin Hoặc Kết Bạn"
     }
   ],
   "pinData": {},
@@ -756,7 +822,7 @@
       "main": [
         [
           {
-            "node": "Kiểm tra Link hay UID",
+            "node": "Phân Luồng Cào Hoặc Đồng Bộ",
             "type": "main",
             "index": 0
           }
@@ -807,7 +873,7 @@
       "main": [
         [
           {
-            "node": "Chuẩn Bị Danh Sách Người Nhận",
+            "node": "Phân Luồng Gửi Tin Hoặc Kết Bạn",
             "type": "main",
             "index": 0
           }
@@ -1094,6 +1160,42 @@
         [
           {
             "node": "Vòng Lặp Từng Lời Mời",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Phân Luồng Cào Hoặc Đồng Bộ": {
+      "main": [
+        [
+          {
+            "node": "Đồng Bộ - Lấy Danh Sách Bạn Bè",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kiểm tra Link hay UID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Phân Luồng Gửi Tin Hoặc Kết Bạn": {
+      "main": [
+        [
+          {
+            "node": "Chuẩn Bị DS Gửi Lời Mời",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chuẩn Bị Danh Sách Người Nhận",
             "type": "main",
             "index": 0
           }

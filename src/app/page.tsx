@@ -88,9 +88,29 @@ export default function Home() {
 
   // Accounts Tab
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [newAccount, setNewAccount] = useState({ phone: "", name: "", scrape_webhook_url: "", send_webhook_url: "" });
+  const [newAccount, setNewAccount] = useState({
+    phone: "",
+    name: "",
+    scrape_webhook_url: "",
+    send_webhook_url: "",
+    friend_webhook_url: "",
+    sync_webhook_url: "",
+  });
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [accountNotice, setAccountNotice] = useState("");
+
+  // Edit Account Modal State
+  const [editingAccountModal, setEditingAccountModal] = useState<any | null>(null);
+  const [editingAccountForm, setEditingAccountForm] = useState({
+    id: "",
+    phone: "",
+    name: "",
+    scrape_webhook_url: "",
+    send_webhook_url: "",
+    friend_webhook_url: "",
+    sync_webhook_url: "",
+  });
+  const [isSavingAccountEdit, setIsSavingAccountEdit] = useState(false);
 
   // Groups
   const [groups, setGroups] = useState<any[]>([]);
@@ -457,7 +477,14 @@ export default function Home() {
       const data = await clientSaveAccount(newAccount);
       if (data.success) {
         setAccountNotice("Đã thêm tài khoản SĐT Zalo thành công!");
-        setNewAccount({ phone: "", name: "", scrape_webhook_url: "", send_webhook_url: "" });
+        setNewAccount({
+          phone: "",
+          name: "",
+          scrape_webhook_url: "",
+          send_webhook_url: "",
+          friend_webhook_url: "",
+          sync_webhook_url: "",
+        });
         fetchAccounts();
         fetchStats();
       } else {
@@ -480,6 +507,61 @@ export default function Home() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // Open Edit Account Modal
+  const handleOpenEditAccount = (acc: any) => {
+    setEditingAccountModal(acc);
+    setEditingAccountForm({
+      id: acc.id || acc.phone,
+      phone: acc.phone || "",
+      name: acc.name || "",
+      scrape_webhook_url: acc.scrape_webhook_url || "",
+      send_webhook_url: acc.send_webhook_url || "",
+      friend_webhook_url: acc.friend_webhook_url || "",
+      sync_webhook_url: acc.sync_webhook_url || "",
+    });
+  };
+
+  // Save Edit Account Modal
+  const handleSaveAccountModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccountModal) return;
+    const oldPhone = editingAccountModal.phone;
+    const newPhone = editingAccountForm.phone.trim();
+    if (!newPhone) {
+      alert("Vui lòng nhập số điện thoại Zalo.");
+      return;
+    }
+
+    setIsSavingAccountEdit(true);
+    try {
+      await clientSaveAccount({
+        phone: newPhone,
+        name: editingAccountForm.name.trim(),
+        scrape_webhook_url: editingAccountForm.scrape_webhook_url.trim(),
+        send_webhook_url: editingAccountForm.send_webhook_url.trim(),
+        friend_webhook_url: editingAccountForm.friend_webhook_url.trim(),
+        sync_webhook_url: editingAccountForm.sync_webhook_url.trim(),
+      });
+
+      // If phone changed, delete old document
+      if (oldPhone && oldPhone !== newPhone) {
+        await clientDeleteAccount(oldPhone);
+        if (activeAccountPhone === oldPhone) {
+          handleSwitchAccount(newPhone);
+        }
+      }
+
+      setEditingAccountModal(null);
+      await fetchAccounts();
+      await fetchStats();
+      alert("Đã cập nhật thông tin tài khoản SĐT thành công!");
+    } catch (err: any) {
+      alert("Lỗi khi lưu tài khoản: " + (err.message || err));
+    } finally {
+      setIsSavingAccountEdit(false);
     }
   };
 
@@ -2371,13 +2453,25 @@ export default function Home() {
         {activeTab === "accounts" && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <h3 className="font-semibold text-sm text-white mb-2 flex items-center gap-2">
-                <Phone className="w-4 h-4 text-emerald-400" />
-                Thêm Số Điện Thoại Zalo Cào & Gửi Tin
-              </h3>
-              <p className="text-xs text-slate-400 mb-4">
-                Mỗi số điện thoại Zalo sẽ đi kèm một URL Webhook n8n cào và gửi tin riêng biệt.
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-emerald-400" />
+                  <span>Thêm Số Điện Thoại Zalo & Cấu Hình Webhook</span>
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400 mb-3">
+                Mỗi tài khoản Zalo có thể cấu hình trọn bộ Webhook n8n cho: <strong>Cào nhóm</strong>, <strong>Gửi tin tiếp thị</strong>, <strong>Gửi kết bạn</strong> và <strong>Đồng bộ bạn bè</strong>.
               </p>
+
+              {/* Note on 2-webhook vs 4-webhook */}
+              <div className="mb-4 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 flex items-start gap-2.5">
+                <span className="text-base leading-none">💡</span>
+                <div className="leading-relaxed">
+                  <strong>Tùy chọn cấu hình Webhook linh hoạt:</strong><br />
+                  • <strong>Nếu dùng 2 Webhook n8n (gộp):</strong> Chỉ cần điền <strong>Webhook Cào</strong> (tự động kiêm luôn Đồng bộ bạn bè) và <strong>Webhook Gửi Tin</strong> (tự động kiêm luôn Gửi kết bạn). Hai ô bên dưới để trống!<br />
+                  • <strong>Nếu dùng 4 Webhook n8n riêng biệt:</strong> Điền đầy đủ cả 4 đường link Webhook tương ứng bên dưới.
+                </div>
+              </div>
 
               <form onSubmit={handleAddAccount} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2388,7 +2482,7 @@ export default function Home() {
                       placeholder="vd: 0912345678"
                       value={newAccount.phone}
                       onChange={(e) => setNewAccount({ ...newAccount, phone: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                       required
                     />
                   </div>
@@ -2397,38 +2491,68 @@ export default function Home() {
                     <label className="block text-xs font-medium text-slate-300 mb-1">Tên Gợi Nhớ Tài Khoản</label>
                     <input
                       type="text"
-                      placeholder="vd: Zalo Marketing 01"
+                      placeholder="vd: Zalo Marketing 01, CSKH 02"
                       value={newAccount.name}
                       onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Link Webhook n8n Đi Cào Của SĐT Này (*)
+                      1. Webhook n8n Cào Nhóm Zalo (*)
                     </label>
                     <input
                       type="url"
-                      placeholder="https://n8n.domain.com/webhook/scrape-acc-01"
+                      placeholder="https://n8n.domain.com/webhook/zalo-scrape"
                       value={newAccount.scrape_webhook_url}
                       onChange={(e) => setNewAccount({ ...newAccount, scrape_webhook_url: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                       required
                     />
+                    <p className="text-[10px] text-slate-500 mt-1">Dùng để quét danh sách thành viên nhóm Zalo</p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Link Webhook n8n Gửi Tin Nhắn Của SĐT Này
+                      2. Webhook n8n Gửi Tin Tiếp Thị
                     </label>
                     <input
                       type="url"
-                      placeholder="https://n8n.domain.com/webhook/send-acc-01"
+                      placeholder="https://n8n.domain.com/webhook/zalo-send-campaign"
                       value={newAccount.send_webhook_url}
                       onChange={(e) => setNewAccount({ ...newAccount, send_webhook_url: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
                     />
+                    <p className="text-[10px] text-slate-500 mt-1">Dùng để gửi tin nhắn kèm ảnh/video hàng loạt</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      3. Webhook n8n Gửi Lời Mời Kết Bạn (Tùy chọn)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://n8n.domain.com/webhook/zalo-send-friend-requests (để trống nếu dùng chung Webhook 2)"
+                      value={newAccount.friend_webhook_url}
+                      onChange={(e) => setNewAccount({ ...newAccount, friend_webhook_url: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Để trống nếu dùng chung Webhook Gửi Tin n8n</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      4. Webhook n8n Đồng Bộ / Đối Soát Bạn Bè (Tùy chọn)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://n8n.domain.com/webhook/zalo-sync-friends (để trống nếu dùng chung Webhook 1)"
+                      value={newAccount.sync_webhook_url}
+                      onChange={(e) => setNewAccount({ ...newAccount, sync_webhook_url: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Để trống nếu dùng chung Webhook Cào n8n</p>
                   </div>
                 </div>
 
@@ -2473,12 +2597,12 @@ export default function Home() {
                     <thead className="bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
                       <tr>
                         <th className="py-3 px-4">Số Điện Thoại & Tên</th>
-                        <th className="py-3 px-4">Webhook Cào n8n</th>
-                        <th className="py-3 px-4">Webhook Gửi Tin n8n</th>
+                        <th className="py-3 px-4">Webhook Cào & Đồng Bộ</th>
+                        <th className="py-3 px-4">Webhook Gửi Tin & Kết Bạn</th>
                         <th className="py-3 px-4">Nhóm Đã Cào</th>
                         <th className="py-3 px-4">Tin Đã Gửi</th>
                         <th className="py-3 px-4">Trạng Thái</th>
-                        <th className="py-3 px-4 text-right">Xóa</th>
+                        <th className="py-3 px-4 text-right">Thao Tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
@@ -2488,11 +2612,33 @@ export default function Home() {
                             <div className="text-slate-100 font-semibold font-mono">{a.phone}</div>
                             <div className="text-[11px] text-slate-400">{a.name}</div>
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-slate-300 max-w-xs truncate" title={a.scrape_webhook_url}>
-                            {a.scrape_webhook_url}
+                          <td className="py-3.5 px-4 space-y-1">
+                            <div className="text-[11px] text-slate-300 flex items-center gap-1">
+                              <span className="text-blue-400 font-semibold">Cào:</span>
+                              <span className="font-mono text-slate-400 truncate max-w-[180px]" title={a.scrape_webhook_url}>
+                                {a.scrape_webhook_url || "Mặc định"}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                              <span className="text-emerald-400 font-semibold">Sync:</span>
+                              <span className="font-mono text-slate-500 truncate max-w-[180px]" title={a.sync_webhook_url}>
+                                {a.sync_webhook_url || "Chung với cào"}
+                              </span>
+                            </div>
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-slate-400 max-w-xs truncate" title={a.send_webhook_url}>
-                            {a.send_webhook_url || "Chưa cấu hình"}
+                          <td className="py-3.5 px-4 space-y-1">
+                            <div className="text-[11px] text-slate-300 flex items-center gap-1">
+                              <span className="text-indigo-400 font-semibold">Gửi:</span>
+                              <span className="font-mono text-slate-400 truncate max-w-[180px]" title={a.send_webhook_url}>
+                                {a.send_webhook_url || "Mặc định"}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                              <span className="text-pink-400 font-semibold">Kết bạn:</span>
+                              <span className="font-mono text-slate-500 truncate max-w-[180px]" title={a.friend_webhook_url}>
+                                {a.friend_webhook_url || "Chung với gửi"}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="bg-indigo-500/10 text-indigo-400 font-semibold px-2 py-0.5 rounded">
@@ -2510,13 +2656,25 @@ export default function Home() {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => handleDeleteAccount(a.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-400 bg-slate-800 rounded-lg transition cursor-pointer"
-                              title="Xóa tài khoản"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditAccount(a)}
+                                className="p-1.5 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition cursor-pointer flex items-center gap-1 text-xs"
+                                title="Chỉnh sửa thông tin tài khoản SĐT này"
+                              >
+                                <Edit className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Sửa</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAccount(a.id || a.phone)}
+                                className="p-1.5 text-slate-400 hover:text-red-400 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition cursor-pointer"
+                                title="Xóa tài khoản"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3740,6 +3898,130 @@ export default function Home() {
                 Lưu Cài Đặt
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: EDIT ACCOUNT INFO ================= */}
+      {editingAccountModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full p-5 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                <Edit className="w-4 h-4 text-emerald-400" />
+                <span>Chỉnh Sửa Thông Tin Tài Khoản Zalo & Webhook</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingAccountModal(null)}
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAccountModal} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Số Điện Thoại Zalo (*)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingAccountForm.phone}
+                    onChange={(e) => setEditingAccountForm({ ...editingAccountForm, phone: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Đổi SĐT sẽ tự động cập nhật lại hệ thống</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Tên Gợi Nhớ Tài Khoản
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="vd: Zalo Marketing 01, CSKH 02"
+                    value={editingAccountForm.name}
+                    onChange={(e) => setEditingAccountForm({ ...editingAccountForm, name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    1. Webhook n8n Cào Nhóm Zalo
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://n8n.domain.com/webhook/zalo-scrape"
+                    value={editingAccountForm.scrape_webhook_url}
+                    onChange={(e) => setEditingAccountForm({ ...editingAccountForm, scrape_webhook_url: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    2. Webhook n8n Gửi Tin Tiếp Thị
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://n8n.domain.com/webhook/zalo-send-campaign"
+                    value={editingAccountForm.send_webhook_url}
+                    onChange={(e) => setEditingAccountForm({ ...editingAccountForm, send_webhook_url: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    3. Webhook n8n Gửi Lời Mời Kết Bạn (Tùy chọn)
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="Để trống nếu dùng chung Webhook 2"
+                    value={editingAccountForm.friend_webhook_url}
+                    onChange={(e) => setEditingAccountForm({ ...editingAccountForm, friend_webhook_url: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Để trống nếu dùng chung Webhook Gửi Tin</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    4. Webhook n8n Đồng Bộ / Đối Soát Bạn Bè (Tùy chọn)
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="Để trống nếu dùng chung Webhook 1"
+                    value={editingAccountForm.sync_webhook_url}
+                    onChange={(e) => setEditingAccountForm({ ...editingAccountForm, sync_webhook_url: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Để trống nếu dùng chung Webhook Cào</p>
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingAccountModal(null)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingAccountEdit}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer shadow-md shadow-emerald-600/20 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingAccountEdit ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>Lưu Thay Đổi</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
