@@ -119,9 +119,10 @@ export interface MemberFilter {
   groupId?: string;
   role?: string; // 'member' | 'admin' | 'creator' | 'all'
   sentStatus?: string; // 'sent' | 'unsent' | 'all'
-  friendStatus?: string; // 'friend' | 'not_friend' | 'all'
+  friendStatus?: string; // 'friend' | 'pending' | 'not_friend' | 'all'
   strangerBlock?: string; // 'blocked' | 'open' | 'all'
   search?: string;
+  sortBy?: string; // 'newest' | 'friend_first' | 'pending_first' | 'not_friend_first'
   page?: number;
   limit?: number;
 }
@@ -150,6 +151,8 @@ export async function getMembers(filter: MemberFilter = {}) {
 
   if (filter.friendStatus === "friend") {
     allMembers = allMembers.filter((m) => m.is_friend === 1 || m.is_friend === true);
+  } else if (filter.friendStatus === "pending") {
+    allMembers = allMembers.filter((m) => m.is_friend === 2);
   } else if (filter.friendStatus === "not_friend") {
     allMembers = allMembers.filter((m) => !m.is_friend || m.is_friend === 0);
   }
@@ -168,6 +171,34 @@ export async function getMembers(filter: MemberFilter = {}) {
         (m.zalo_name && m.zalo_name.toLowerCase().includes(s)) ||
         (m.zalo_id && String(m.zalo_id).includes(s))
     );
+  }
+
+  // Sorting logic
+  if (filter.sortBy === "friend_first") {
+    // 1: Friend (highest), 2: Pending, 0: Not friend
+    allMembers.sort((a, b) => {
+      const order = (v: any) => (v === 1 ? 3 : v === 2 ? 2 : 1);
+      return order(b.is_friend) - order(a.is_friend);
+    });
+  } else if (filter.sortBy === "pending_first") {
+    // 2: Pending (highest), 1: Friend, 0: Not friend
+    allMembers.sort((a, b) => {
+      const order = (v: any) => (v === 2 ? 3 : v === 1 ? 2 : 1);
+      return order(b.is_friend) - order(a.is_friend);
+    });
+  } else if (filter.sortBy === "not_friend_first") {
+    // 0: Not friend (highest), 2: Pending, 1: Friend
+    allMembers.sort((a, b) => {
+      const order = (v: any) => (!v || v === 0 ? 3 : v === 2 ? 2 : 1);
+      return order(b.is_friend) - order(a.is_friend);
+    });
+  } else {
+    // Default: newest updated_at first
+    allMembers.sort((a, b) => {
+      const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return dateB - dateA;
+    });
   }
 
   const total = allMembers.length;

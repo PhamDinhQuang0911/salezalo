@@ -107,8 +107,9 @@ export default function Home() {
   const [selectedGroupId, setSelectedGroupId] = useState<string>(""); // "" = All Groups
   const [memberFilterRole, setMemberFilterRole] = useState("member");
   const [memberFilterSent, setMemberFilterSent] = useState("all"); // all | not_sent | sent
-  const [memberFilterFriend, setMemberFilterFriend] = useState("all"); // all | friend | not_friend
+  const [memberFilterFriend, setMemberFilterFriend] = useState("all"); // all | friend | pending | not_friend
   const [memberFilterStranger, setMemberFilterStranger] = useState("all"); // all | allowed | blocked
+  const [memberSortBy, setMemberSortBy] = useState("newest"); // newest | friend_first | pending_first | not_friend_first
   const [memberSearch, setMemberSearch] = useState("");
   const [memberPagination, setMemberPagination] = useState({ total: 0, page: 1, limit: 30, totalPages: 1 });
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
@@ -180,7 +181,7 @@ export default function Home() {
     } else if (activeTab === "campaigns") {
       fetchCampaigns();
     }
-  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger]);
+  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberSortBy]);
 
   const fetchStats = async () => {
     try {
@@ -226,6 +227,7 @@ export default function Home() {
         friendStatus: memberFilterFriend,
         strangerBlock: memberFilterStranger,
         search: memberSearch,
+        sortBy: memberSortBy,
         page,
         limit: 30,
       });
@@ -1179,7 +1181,7 @@ export default function Home() {
 
 
                   {/* Filter Selectors */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-3">
                     {/* Role Filter */}
                     <select
                       value={memberFilterRole}
@@ -1209,8 +1211,9 @@ export default function Home() {
                       className="bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
                     >
                       <option value="all">🤝 Kết bạn: Tất cả</option>
-                      <option value="friend">Đã kết bạn</option>
-                      <option value="not_friend">Chưa kết bạn</option>
+                      <option value="friend">🤝 Đã là bạn bè</option>
+                      <option value="pending">⏳ Đã gửi lời mời (Chờ duyệt)</option>
+                      <option value="not_friend">➕ Chưa kết bạn</option>
                     </select>
 
                     {/* Stranger Block Status */}
@@ -1222,6 +1225,18 @@ export default function Home() {
                       <option value="all">🛡️ Chặn tin lạ: Tất cả</option>
                       <option value="allowed">Cho phép nhận tin lạ</option>
                       <option value="blocked">Chặn tin nhắn người lạ</option>
+                    </select>
+
+                    {/* Sort Order */}
+                    <select
+                      value={memberSortBy}
+                      onChange={(e) => setMemberSortBy(e.target.value)}
+                      className="bg-slate-950 border border-slate-700/80 rounded-xl px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="newest">⚡ Sắp xếp: Mới nhất</option>
+                      <option value="friend_first">🤝 Ưu tiên Bạn bè trước</option>
+                      <option value="pending_first">⏳ Ưu tiên Đang gửi lời mời</option>
+                      <option value="not_friend_first">➕ Ưu tiên Chưa kết bạn</option>
                     </select>
                   </div>
 
@@ -1256,7 +1271,9 @@ export default function Home() {
                       </span>
                       <div className="hidden md:flex items-center gap-3 text-[11px] text-slate-400 pl-4 border-l border-slate-800">
                         <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3 text-emerald-400" /> Đã gửi tin</span>
-                        <span className="flex items-center gap-1"><UserPlus className="w-3 h-3 text-blue-400" /> Đã kết bạn</span>
+                        <span className="flex items-center gap-1"><UserPlus className="w-3 h-3 text-blue-400" /> Bạn bè</span>
+                        <span className="flex items-center gap-1"><UserPlus className="w-3 h-3 text-amber-400" /> Đã gửi lời mời</span>
+                        <span className="flex items-center gap-1"><UserPlus className="w-3 h-3 text-slate-500" /> Chưa kết bạn</span>
                         <span className="flex items-center gap-1"><ShieldAlert className="w-3 h-3 text-red-400" /> Chặn tin lạ</span>
                       </div>
                     </div>
@@ -1372,11 +1389,22 @@ export default function Home() {
                                   </span>
 
                                   <button
-                                    onClick={() => handleToggleMember(m.zalo_id, { is_friend: m.is_friend === 1 ? 0 : 1 })}
-                                    title={m.is_friend === 1 ? "Đã là bạn bè (Bấm để đổi)" : "Chưa kết bạn (Bấm để đổi)"}
+                                    onClick={() => {
+                                      const nextStatus = m.is_friend === 1 ? 2 : m.is_friend === 2 ? 0 : 1;
+                                      handleToggleMember(m.zalo_id, { is_friend: nextStatus });
+                                    }}
+                                    title={
+                                      m.is_friend === 1
+                                        ? "🤝 Đã là bạn bè (Bấm để chuyển sang Đang chờ)"
+                                        : m.is_friend === 2
+                                        ? "⏳ Đã gửi lời mời (Bấm để chuyển sang Chưa kết bạn)"
+                                        : "➕ Chưa kết bạn (Bấm để chuyển sang Bạn bè)"
+                                    }
                                     className={`w-6 h-6 rounded flex items-center justify-center border transition cursor-pointer ${
                                       m.is_friend === 1
                                         ? "bg-blue-500/15 border-blue-500/30 text-blue-400"
+                                        : m.is_friend === 2
+                                        ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
                                         : "bg-slate-800/60 border-slate-700/50 text-slate-500 hover:text-slate-300"
                                     }`}
                                   >

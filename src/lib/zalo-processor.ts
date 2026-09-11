@@ -160,6 +160,23 @@ export async function processZaloData(payload: any): Promise<IngestionResult> {
     const accountStatus = profile.accountStatus || 0;
     const globalId = profile.globalId || "";
 
+    // Determine friend status from payload or profiles
+    const friendSet = new Set<string>(
+      Array.isArray(payload?.friendIds) ? payload.friendIds.map(String) : []
+    );
+    const pendingSet = new Set<string>(
+      Array.isArray(payload?.pendingIds) ? payload.pendingIds.map(String) : []
+    );
+
+    let isFriendVal = 0;
+    if ((profile as any).is_friend !== undefined) {
+      isFriendVal = Number((profile as any).is_friend);
+    } else if (friendSet.has(uid)) {
+      isFriendVal = 1;
+    } else if (pendingSet.has(uid)) {
+      isFriendVal = 2;
+    }
+
     const memberDocRef = doc(firestore, collections.members, uid);
     currentBatch.set(
       memberDocRef,
@@ -172,12 +189,14 @@ export async function processZaloData(payload: any): Promise<IngestionResult> {
         global_id: globalId,
         is_admin: isAdmin ? 1 : 0,
         role: role,
+        is_friend: isFriendVal,
         group_ids: arrayUnion(groupId),
         groups_list: groupName,
         updated_at: new Date().toISOString(),
       },
       { merge: true }
     );
+
 
     opCount++;
     if (opCount >= BATCH_SIZE) {
