@@ -64,12 +64,13 @@ import {
   clientImportZaloData,
   uploadMediaFile,
   clientSyncFriendStatus,
+  clientTriggerSendFriendRequests,
 } from "@/lib/client-api";
 
 
 export default function Home() {
   // Tab navigation: "overview" is now on the far left!
-  const [activeTab, setActiveTab] = useState<"overview" | "members_hub" | "accounts" | "groups" | "campaigns" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "members_hub" | "auto_friend" | "accounts" | "groups" | "campaigns" | "settings">("overview");
 
   // Stats
   const [stats, setStats] = useState<any>({
@@ -156,11 +157,26 @@ export default function Home() {
   const [isSyncingFriends, setIsSyncingFriends] = useState(false);
   const [friendSyncNotice, setFriendSyncNotice] = useState("");
 
+  // Auto Friend (Gửi Lời Mời Kết Bạn Riêng Biệt)
+  const [autoFriendGroupId, setAutoFriendGroupId] = useState<string>("all");
+  const [autoFriendLimit, setAutoFriendLimit] = useState<number>(20);
+  const [autoFriendAccountPhone, setAutoFriendAccountPhone] = useState<string>("");
+  const [autoFriendMessage, setAutoFriendMessage] = useState<string>("Chào bạn, mình cùng nhóm Zalo, kết bạn trao đổi nhé!");
+  const [autoFriendDelayMin, setAutoFriendDelayMin] = useState<number>(15);
+  const [autoFriendDelayMax, setAutoFriendDelayMax] = useState<number>(30);
+  const [isSendingFriendRequests, setIsSendingFriendRequests] = useState<boolean>(false);
+  const [autoFriendNotice, setAutoFriendNotice] = useState<string>("");
+  const [autoFriendPreviewMembers, setAutoFriendPreviewMembers] = useState<any[]>([]);
+  const [isLoadingAutoFriendPreview, setIsLoadingAutoFriendPreview] = useState<boolean>(false);
+  const [autoFriendAvailableCount, setAutoFriendAvailableCount] = useState<number>(0);
+
 
   // Settings Tab
   const [settings, setSettings] = useState<any>({
     n8n_scrape_webhook: "",
     n8n_send_webhook: "",
+    n8n_friend_webhook: "",
+    n8n_sync_webhook: "",
     webhook_secret: "",
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -187,8 +203,10 @@ export default function Home() {
       fetchMembers(1);
     } else if (activeTab === "campaigns") {
       fetchCampaigns();
+    } else if (activeTab === "auto_friend") {
+      fetchAutoFriendPreview();
     }
-  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberSortBy]);
+  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberSortBy, autoFriendGroupId, autoFriendLimit]);
 
   const fetchStats = async () => {
     try {
@@ -634,6 +652,77 @@ export default function Home() {
     }
   };
 
+  const fetchAutoFriendPreview = async () => {
+    setIsLoadingAutoFriendPreview(true);
+    try {
+      const data = await clientGetMembers({
+        groupId: autoFriendGroupId && autoFriendGroupId !== "all" ? autoFriendGroupId : undefined,
+        friendStatus: "not_friend",
+        role: "member",
+        limit: autoFriendLimit,
+      });
+      if (data.success) {
+        setAutoFriendPreviewMembers(data.members || []);
+        setAutoFriendAvailableCount(data.pagination?.total || (data.members || []).length);
+      }
+    } catch (err) {
+      console.error("fetchAutoFriendPreview error:", err);
+    } finally {
+      setIsLoadingAutoFriendPreview(false);
+    }
+  };
+
+  const handleSendFriendRequests = async () => {
+    if (isSendingFriendRequests) return;
+    const phoneToUse = autoFriendAccountPhone || (accounts.length > 0 ? accounts[0].phone : "");
+    const selectedGroupTitle =
+      autoFriendGroupId === "all"
+        ? "Tất cả các nhóm"
+        : groups.find((g) => g.group_id === autoFriendGroupId)?.name || autoFriendGroupId;
+
+    if (autoFriendPreviewMembers.length === 0) {
+      alert("Không có thành viên nào chưa kết bạn phù hợp với bộ lọc hiện tại.");
+      return;
+    }
+
+    const countToSend = Math.min(autoFriendLimit, autoFriendPreviewMembers.length);
+    const confirmMsg =
+      `Xác nhận gửi lời mời kết bạn:\n\n` +
+      `• Tài khoản Zalo gửi: ${phoneToUse || "Mặc định n8n"}\n` +
+      `• Nguồn thành viên: ${selectedGroupTitle}\n` +
+      `• Số lượng gửi đợt này: ${countToSend} người\n` +
+      `• Giãn cách ngẫu nhiên: ${autoFriendDelayMin}s - ${autoFriendDelayMax}s (chống checkpoint Zalo)\n` +
+      `• Lời nhắn: "${autoFriendMessage || "(Mặc định của Zalo)"}"\n\n` +
+      `Sau khi gửi, các thành viên này sẽ được tự động chuyển sang trạng thái "⏳ Đang chờ xác nhận".\n\nBạn có muốn bắt đầu?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsSendingFriendRequests(true);
+    setAutoFriendNotice("Đang kích hoạt n8n gửi lời mời kết bạn...");
+
+    try {
+      const res = await clientTriggerSendFriendRequests({
+        targetGroupId: autoFriendGroupId,
+        limit: autoFriendLimit,
+        delayMin: autoFriendDelayMin,
+        delayMax: autoFriendDelayMax,
+        accountPhone: phoneToUse,
+        friendMessage: autoFriendMessage,
+      });
+
+      setAutoFriendNotice(res.message);
+      await fetchAutoFriendPreview();
+      await fetchStats();
+      setTimeout(() => setAutoFriendNotice(""), 12000);
+    } catch (err: any) {
+      console.error("handleSendFriendRequests error:", err);
+      setAutoFriendNotice(`Lỗi: ${err.message || err}`);
+      setTimeout(() => setAutoFriendNotice(""), 12000);
+    } finally {
+      setIsSendingFriendRequests(false);
+    }
+  };
+
   const handleEditCampaign = (c: any) => {
     setEditingCampaignId(c.id);
     setMediaUploadError("");
@@ -726,6 +815,8 @@ export default function Home() {
         ...settings,
         n8n_scrape_webhook: (settings.n8n_scrape_webhook || "").trim(),
         n8n_send_webhook: (settings.n8n_send_webhook || "").trim(),
+        n8n_friend_webhook: (settings.n8n_friend_webhook || "").trim(),
+        n8n_sync_webhook: (settings.n8n_sync_webhook || "").trim(),
       };
       setSettings(sanitizedSettings);
       const data = await clientUpdateSettings(sanitizedSettings);
@@ -817,7 +908,20 @@ export default function Home() {
             </span>
           </button>
 
-          {/* TAB 3: TÀI KHOẢN SĐT CÀO */}
+          {/* TAB 3: GỬI KẾT BẠN (AUTO-FRIEND) */}
+          <button
+            onClick={() => setActiveTab("auto_friend")}
+            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
+              activeTab === "auto_friend"
+                ? "border-pink-500 text-pink-400 bg-pink-500/5"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <UserPlus className="w-4 h-4 text-pink-400" />
+            <span>Gửi Kết Bạn (Auto-Friend)</span>
+          </button>
+
+          {/* TAB 4: TÀI KHOẢN SĐT CÀO */}
           <button
             onClick={() => setActiveTab("accounts")}
             className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
@@ -1142,14 +1246,26 @@ export default function Home() {
                         onClick={handleSyncFriendStatus}
                         disabled={isSyncingFriends}
                         className="text-xs text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/40 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-medium transition-all shadow-sm shadow-emerald-950"
-                        title="Đối soát danh sách bạn bè & lời mời kết bạn từ Zalo qua n8n để cập nhật biểu tượng 🤝 Bạn bè"
+                        title="Gọi n8n lấy danh sách bạn bè & đối soát để cập nhật trạng thái 🤝 Bạn bè cho toàn bộ thành viên đã cào"
                       >
                         {isSyncingFriends ? (
                           <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
                         ) : (
                           <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
                         )}
-                        <span>{isSyncingFriends ? "Đang đồng bộ..." : "Đồng Bộ Bạn Bè"}</span>
+                        <span>{isSyncingFriends ? "Đang đối soát..." : "Cập Nhật Trạng Thái Kết Bạn (🤝)"}</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setAutoFriendGroupId(selectedGroupId || "all");
+                          setActiveTab("auto_friend");
+                        }}
+                        className="text-xs text-pink-300 hover:text-white bg-pink-600/20 hover:bg-pink-600/30 px-3 py-1.5 rounded-lg border border-pink-500/40 flex items-center gap-1.5 cursor-pointer font-medium transition-all shadow-sm"
+                        title="Chuyển sang công cụ gửi lời mời kết bạn hàng loạt cho nhóm này"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-pink-400" />
+                        <span>Gửi Kết Bạn Nhóm Này</span>
                       </button>
 
                       {selectedGroupObj && (
@@ -1514,6 +1630,421 @@ export default function Home() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= TAB: AUTO FRIEND (GỬI KẾT BẠN HÀNG LOẠT) ================= */}
+        {activeTab === "auto_friend" && (
+          <div className="space-y-6">
+            {/* Header & Quick Action */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-pink-400" />
+                  <span>Gửi Lời Mời Kết Bạn Zalo Tự Động (Anti-Checkpoint)</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Chọn số lượng & nhóm cần gửi lời mời kết bạn. n8n tự động giãn cách ngẫu nhiên 15 - 30s giữa mỗi người để bảo vệ nick Zalo.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleSyncFriendStatus}
+                  disabled={isSyncingFriends}
+                  className="text-xs text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600/30 px-3.5 py-2 rounded-xl border border-emerald-500/40 flex items-center gap-2 cursor-pointer disabled:opacity-50 font-medium transition-all shadow-sm"
+                  title="Gọi n8n lấy danh sách bạn bè & đối soát với toàn bộ thành viên cào trong hệ thống"
+                >
+                  {isSyncingFriends ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                  ) : (
+                    <UserCheck className="w-4 h-4 text-emerald-400" />
+                  )}
+                  <span>{isSyncingFriends ? "Đang đối soát..." : "Cập Nhật Trạng Thái Kết Bạn (🤝)"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Notification Banner */}
+            {autoFriendNotice && (
+              <div
+                className={`p-4 rounded-2xl text-xs flex items-center gap-3 border shadow-sm ${
+                  autoFriendNotice.includes("Lỗi")
+                    ? "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                }`}
+              >
+                {autoFriendNotice.includes("Lỗi") ? (
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                )}
+                <span className="font-medium">{autoFriendNotice}</span>
+              </div>
+            )}
+
+            {friendSyncNotice && (
+              <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 flex items-center gap-3">
+                <Sparkles className="w-4 h-4 text-blue-400 shrink-0" />
+                <span>{friendSyncNotice}</span>
+              </div>
+            )}
+
+            {/* Summary Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-400 font-medium">Đã là bạn bè (🤝)</p>
+                  <p className="text-xl font-bold text-emerald-400 mt-1">{stats.friendsCount}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Nhắn tin không bị chặn tin lạ</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-400 font-medium">Chưa kết bạn (Sẵn sàng gửi)</p>
+                  <p className="text-xl font-bold text-pink-400 mt-1">{autoFriendAvailableCount}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Trong tệp đang chọn</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-400 flex items-center justify-center">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-400 font-medium">Đã gửi lời mời (⏳ Chờ duyệt)</p>
+                  <p className="text-xl font-bold text-amber-400 mt-1">
+                    {Math.max(0, (stats.targetMembers || 0) - (stats.friendsCount || 0) - autoFriendAvailableCount)}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Đang chờ đối phương đồng ý</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                  <Clock className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Config & Action Box */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5">
+              <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                <Settings className="w-4 h-4 text-pink-400" />
+                Cấu Hình Đợt Gửi Lời Mời Kết Bạn
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Tài khoản Zalo gửi */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Tài khoản SĐT Zalo thực hiện kết bạn
+                  </label>
+                  <select
+                    value={autoFriendAccountPhone}
+                    onChange={(e) => setAutoFriendAccountPhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500"
+                  >
+                    {accounts.length === 0 ? (
+                      <option value="">Tài khoản mặc định n8n</option>
+                    ) : (
+                      accounts.map((acc) => (
+                        <option key={acc.phone} value={acc.phone}>
+                          {acc.name || "Zalo"} ({acc.phone})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Tài khoản Zalo sẽ gửi lời mời tới các thành viên được chọn.
+                  </p>
+                </div>
+
+                {/* Chọn nguồn nhóm */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Nguồn thành viên cần kết bạn
+                  </label>
+                  <select
+                    value={autoFriendGroupId}
+                    onChange={(e) => setAutoFriendGroupId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500"
+                  >
+                    <option value="all">🌐 Tất cả các nhóm (Toàn bộ kho thành viên cào)</option>
+                    {groups.map((g) => (
+                      <option key={g.group_id} value={g.group_id}>
+                        {g.name} ({g.filtered_member_count || 0} thành viên sạch)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Chỉ lọc những thành viên chưa kết bạn (loại bỏ Admin và người đã gửi).
+                  </p>
+                </div>
+              </div>
+
+              {/* Số lượng gửi & Giãn cách */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-300">
+                      Số lượng người gửi đợt này
+                    </label>
+                    <span className="text-xs font-bold text-pink-400">
+                      {autoFriendLimit} người
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {[10, 20, 30, 50, 100].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setAutoFriendLimit(preset)}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                          autoFriendLimit === preset
+                            ? "bg-pink-600 text-white border-pink-500 shadow-sm"
+                            : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    💡 Khuyến nghị: 20-30 người/ngày mỗi tài khoản để giữ an toàn tuyệt đối cho nick Zalo.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Giãn cách ngẫu nhiên giữa 2 lần gửi (giây)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={5}
+                        max={120}
+                        value={autoFriendDelayMin}
+                        onChange={(e) => setAutoFriendDelayMin(Number(e.target.value) || 15)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500"
+                      />
+                      <span className="text-[11px] text-slate-500 absolute right-3 top-1/2 -translate-y-1/2">
+                        s (Tối thiểu)
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={10}
+                        max={300}
+                        value={autoFriendDelayMax}
+                        onChange={(e) => setAutoFriendDelayMax(Number(e.target.value) || 30)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500"
+                      />
+                      <span className="text-[11px] text-slate-500 absolute right-3 top-1/2 -translate-y-1/2">
+                        s (Tối đa)
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    Mỗi lần gửi n8n sẽ random từ {autoFriendDelayMin}s đến {autoFriendDelayMax}s mô phỏng thao tác người thật.
+                  </p>
+                </div>
+              </div>
+
+              {/* Lời nhắn kết bạn */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Lời nhắn gửi kèm lời mời kết bạn
+                </label>
+                <textarea
+                  rows={2}
+                  value={autoFriendMessage}
+                  onChange={(e) => setAutoFriendMessage(e.target.value)}
+                  placeholder="Chào bạn, mình cùng trong nhóm Zalo, kết bạn trao đổi nhé!"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 resize-none"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="text-[11px] text-slate-500 self-center">Mẫu gợi ý:</span>
+                  {[
+                    "Chào bạn, mình cùng nhóm Zalo, kết bạn trao đổi nhé!",
+                    "Chào bạn, mình kết bạn giao lưu hỗ trợ nhé!",
+                    "Chào bạn!",
+                  ].map((tpl) => (
+                    <button
+                      key={tpl}
+                      type="button"
+                      onClick={() => setAutoFriendMessage(tpl)}
+                      className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded-md border border-slate-700 cursor-pointer"
+                    >
+                      {tpl}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setAutoFriendMessage("")}
+                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-400 px-2 py-1 rounded-md border border-slate-700 cursor-pointer"
+                  >
+                    Bỏ trống (Mặc định Zalo)
+                  </button>
+                </div>
+              </div>
+
+              {/* Nút thực thi chính */}
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-800/80">
+                <div className="text-xs text-slate-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Cơ chế an toàn: tự động đổi trạng thái sang ⏳ Đang chờ xác nhận ngay khi kích hoạt.</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSyncFriendStatus}
+                    disabled={isSyncingFriends}
+                    className="px-4 py-2.5 rounded-xl border border-emerald-500/40 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-300 text-xs font-semibold flex items-center gap-2 cursor-pointer disabled:opacity-50 transition"
+                  >
+                    {isSyncingFriends ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    ) : (
+                      <UserCheck className="w-4 h-4 text-emerald-400" />
+                    )}
+                    <span>Cập Nhật Trạng Thái Kết Bạn</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSendFriendRequests}
+                    disabled={isSendingFriendRequests || autoFriendPreviewMembers.length === 0}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition shadow-lg shadow-pink-900/30"
+                  >
+                    {isSendingFriendRequests ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Đang kích hoạt n8n...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Bắt Đầu Gửi Kết Bạn ({Math.min(autoFriendLimit, autoFriendPreviewMembers.length)} người)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Danh Sách Xem Trước Thành Viên Sẽ Nhận Lời Mời */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-400" />
+                    Danh Sách Thành Viên Sẽ Gửi Lời Mời (Tối Đa {autoFriendLimit} Người Đợt Này)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Hệ thống đã tự động lọc chỉ lấy thành viên chưa kết bạn (➕) và không phải Admin nhóm.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchAutoFriendPreview}
+                  disabled={isLoadingAutoFriendPreview}
+                  className="text-xs text-slate-400 hover:text-white bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAutoFriendPreview ? "animate-spin text-blue-400" : ""}`} />
+                  <span>Làm mới DS</span>
+                </button>
+              </div>
+
+              {isLoadingAutoFriendPreview ? (
+                <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-pink-400" />
+                  <span>Đang tải danh sách thành viên...</span>
+                </div>
+              ) : autoFriendPreviewMembers.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-400 bg-slate-950/40 rounded-xl border border-slate-800">
+                  <UserCheck className="w-8 h-8 text-emerald-400 mx-auto mb-2 opacity-70" />
+                  <p className="text-slate-300 font-medium">Không có thành viên nào cần gửi kết bạn!</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Tất cả thành viên trong nhóm này đã là bạn bè hoặc đã được gửi lời mời kết bạn trước đó.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="px-4 py-3 w-12 text-center">STT</th>
+                        <th className="px-4 py-3">Thành viên</th>
+                        <th className="px-4 py-3">Zalo UID</th>
+                        <th className="px-4 py-3">Nhóm gốc</th>
+                        <th className="px-4 py-3 text-center">Trạng thái hiện tại</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 bg-slate-900/50">
+                      {autoFriendPreviewMembers.map((m, idx) => (
+                        <tr key={m.zalo_id || m.id} className="hover:bg-slate-800/40 transition">
+                          <td className="px-4 py-3 text-center text-slate-500 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="px-4 py-3 flex items-center gap-3">
+                            {m.avatar ? (
+                              <img
+                                src={m.avatar}
+                                alt=""
+                                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs shrink-0">
+                                {m.display_name?.slice(0, 1) || "U"}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-semibold text-white truncate max-w-[200px]">
+                                {m.display_name || "Thành viên"}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {m.gender === "male" ? "Nam" : m.gender === "female" ? "Nữ" : "Ẩn giới tính"}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[11px] text-slate-400">
+                            <span className="flex items-center gap-1.5">
+                              {m.zalo_id || m.id}
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(m.zalo_id || m.id)}
+                                className="text-slate-500 hover:text-white cursor-pointer"
+                                title="Copy UID"
+                              >
+                                {copiedUid === (m.zalo_id || m.id) ? (
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">
+                            {m.group_name || m.group_id || "Chung"}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                              ➕ Chưa kết bạn
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2481,6 +3012,32 @@ export default function Home() {
                     type="text"
                     value={settings.n8n_send_webhook || ""}
                     onChange={(e) => setSettings({ ...settings, n8n_send_webhook: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    n8n Friend Webhook URL (Gửi lời mời kết bạn tự động)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://n8n.qmath.io.vn/webhook/zalo-send-friend-requests"
+                    value={settings.n8n_friend_webhook || ""}
+                    onChange={(e) => setSettings({ ...settings, n8n_friend_webhook: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    n8n Sync Friends Webhook URL (Đối soát trạng thái bạn bè & lời mời)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://n8n.qmath.io.vn/webhook/zalo-sync-friends"
+                    value={settings.n8n_sync_webhook || ""}
+                    onChange={(e) => setSettings({ ...settings, n8n_sync_webhook: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
                   />
                 </div>

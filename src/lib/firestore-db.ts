@@ -55,6 +55,8 @@ export async function saveAccount(data: {
   name?: string;
   scrape_webhook_url?: string;
   send_webhook_url?: string;
+  friend_webhook_url?: string;
+  sync_webhook_url?: string;
 }) {
   const phone = data.phone.trim();
   const docRef = doc(firestore, collections.accounts, phone);
@@ -65,6 +67,8 @@ export async function saveAccount(data: {
     name: data.name || (existing.exists() ? existing.data().name : `Zalo ${phone}`),
     scrape_webhook_url: data.scrape_webhook_url || "",
     send_webhook_url: data.send_webhook_url || "",
+    friend_webhook_url: data.friend_webhook_url || "",
+    sync_webhook_url: data.sync_webhook_url || "",
     updated_at: new Date().toISOString(),
   };
 

@@ -257,7 +257,7 @@
     },
     {
       "parameters": {
-        "amount": 3,
+        "amount": "={{ Math.floor(Math.random() * (30 - 15 + 1)) + 15 }}",
         "unit": "seconds"
       },
       "type": "n8n-nodes-base.wait",
@@ -267,7 +267,7 @@
         50
       ],
       "id": "node-wait-friend",
-      "name": "Chờ 3s Sau Kết Bạn",
+      "name": "Chờ Random 15-30s Sau Kết Bạn",
       "webhookId": "w-friend-wait-001"
     },
     {
@@ -666,6 +666,88 @@
           "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
         }
       }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zalo-send-friend-requests",
+        "responseMode": "onReceived",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -450,
+        480
+      ],
+      "id": "node-webhook-send-friends",
+      "name": "Webhook Gửi Lời Mời Kết Bạn"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst recipients = body.recipients || [];\nconst delayMin = Number(body.delayMin || 15);\nconst delayMax = Number(body.delayMax || 30);\nconst msg = body.friendMessage || '';\n\nreturn recipients.map((r, idx) => ({\n  json: {\n    index: idx + 1,\n    total: recipients.length,\n    zaloId: String(r.zaloId),\n    name: r.name || 'Thành viên',\n    delayMin: delayMin,\n    delayMax: delayMax,\n    friendMessage: msg\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        480
+      ],
+      "id": "node-code-prepare-friends",
+      "name": "Chuẩn Bị DS Gửi Lời Mời"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        60,
+        480
+      ],
+      "id": "node-batch-friends",
+      "name": "Vòng Lặp Từng Lời Mời"
+    },
+    {
+      "parameters": {
+        "resource": "friend",
+        "operation": "sendFriendRequest",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "userId": "={{ $json.zaloId }}"
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        320,
+        480
+      ],
+      "id": "node-zalo-do-send-friend",
+      "name": "Thực Hiện Kết Bạn Zalo",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.floor(Math.random() * (($json.delayMax || 30) - ($json.delayMin || 15) + 1)) + ($json.delayMin || 15) }}",
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        580,
+        480
+      ],
+      "id": "node-wait-friend-delay",
+      "name": "Chờ Random 15-30s Kết Bạn"
     }
   ],
   "pinData": {},
@@ -777,18 +859,7 @@
       "main": [
         [
           {
-            "node": "Chờ 3s Sau Kết Bạn",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Chờ 3s Sau Kết Bạn": {
-      "main": [
-        [
-          {
-            "node": "Kiểm Tra Có Phải Video?",
+            "node": "Chờ Random 15-30s Sau Kết Bạn",
             "type": "main",
             "index": 0
           }
@@ -957,6 +1028,72 @@
         [
           {
             "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chờ Random 15-30s Sau Kết Bạn": {
+      "main": [
+        [
+          {
+            "node": "Kiểm Tra Có Phải Video?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Gửi Lời Mời Kết Bạn": {
+      "main": [
+        [
+          {
+            "node": "Chuẩn Bị DS Gửi Lời Mời",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chuẩn Bị DS Gửi Lời Mời": {
+      "main": [
+        [
+          {
+            "node": "Vòng Lặp Từng Lời Mời",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vòng Lặp Từng Lời Mời": {
+      "main": [
+        [
+          {
+            "node": "Thực Hiện Kết Bạn Zalo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Thực Hiện Kết Bạn Zalo": {
+      "main": [
+        [
+          {
+            "node": "Chờ Random 15-30s Kết Bạn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chờ Random 15-30s Kết Bạn": {
+      "main": [
+        [
+          {
+            "node": "Vòng Lặp Từng Lời Mời",
             "type": "main",
             "index": 0
           }

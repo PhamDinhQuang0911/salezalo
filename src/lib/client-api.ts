@@ -40,6 +40,8 @@ export async function clientSaveAccount(data: {
   name?: string;
   scrape_webhook_url?: string;
   send_webhook_url?: string;
+  friend_webhook_url?: string;
+  sync_webhook_url?: string;
 }) {
   const account = await saveAccount(data);
   return { success: true, account };
@@ -580,5 +582,70 @@ export async function clientSyncFriendStatus(accountPhone?: string, webhookUrlOv
 
 export async function clientImportZaloData(payload: any) {
   return await processZaloData(payload);
+}
+
+export async function clientTriggerSendFriendRequests(params: {
+  targetGroupId?: string;
+  limit?: number;
+  delayMin?: number;
+  delayMax?: number;
+  accountPhone?: string;
+  friendMessage?: string;
+}) {
+  const effectiveGroupId = params.targetGroupId && params.targetGroupId !== "all" ? params.targetGroupId : undefined;
+  const { members } = await getMembers({
+    groupId: effectiveGroupId,
+    friendStatus: "not_friend",
+    role: "member",
+    limit: params.limit || 20,
+  });
+
+  if (members.length === 0) {
+    throw new Error("Không có thành viên nào chưa kết bạn (hoặc tất cả đều đã là bạn / đã gửi lời mời) trong tệp đã chọn.");
+  }
+
+  let friendWebhookUrl = "";
+  if (params.accountPhone) {
+    const acc = await getAccountByPhone(params.accountPhone);
+    friendWebhookUrl = (acc as any)?.friend_webhook_url || "";
+  }
+
+  if (!friendWebhookUrl) {
+    const settings = await getSettings();
+    friendWebhookUrl = (settings as any)?.n8n_friend_webhook || "https://n8n.qmath.io.vn/webhook/zalo-send-friend-requests";
+  }
+
+  const payload = {
+    action: "send_friend_requests",
+    accountPhone: params.accountPhone || "",
+    delayMin: params.delayMin || 15,
+    delayMax: params.delayMax || 30,
+    friendMessage: params.friendMessage?.trim() || "",
+    totalRecipients: members.length,
+    recipients: members.map((m: any, idx: number) => ({
+      index: idx + 1,
+      zaloId: String(m.zalo_id || m.id),
+      name: m.display_name || "Thành viên",
+      avatar: m.avatar || "",
+    })),
+    timestamp: new Date().toISOString(),
+  };
+
+  const { calledUrl } = await callN8nWebhook(friendWebhookUrl, payload, 30000);
+
+  // Cập nhật trạng thái trong Firestore thành "Đang gửi lời mời" (is_friend = 2)
+  const updates = members.map((m: any) => ({
+    zaloId: String(m.zalo_id || m.id),
+    isFriend: 2,
+  }));
+  await batchUpdateMembersFriendStatus(updates);
+
+  return {
+    success: true,
+    count: members.length,
+    calledUrl,
+    recipients: members,
+    message: `Đã kích hoạt gửi lời mời kết bạn tới ${members.length} thành viên qua n8n! Trạng thái đã được chuyển sang "Đang chờ duyệt" (⏳).`,
+  };
 }
 
