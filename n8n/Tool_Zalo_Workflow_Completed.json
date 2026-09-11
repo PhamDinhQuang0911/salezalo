@@ -100,12 +100,12 @@
     },
     {
       "parameters": {
-        "jsCode": "const webhookData = $('Webhook Cào Nhóm').first()?.json?.body || {};\nlet groupInfo = null;\n\ntry {\n  const linkItem = $('Lấy Thông Tin Từ Link Nhóm').first()?.json;\n  if (linkItem) {\n    const raw = linkItem.response || linkItem.data || linkItem;\n    if (raw && (raw.groupId || raw.grid || raw.name || raw.groupName)) {\n      const gId = String(raw.groupId || raw.grid || raw.id || webhookData.groupId || '');\n      const gName = String(raw.name || raw.groupName || raw.title || webhookData.name || webhookData.groupName || '');\n      const gAvatar = String(raw.avt || raw.fullAvt || raw.avatar || raw.groupAvatar || '');\n      const gDesc = String(raw.desc || raw.description || '');\n      const gCreator = String(raw.creatorId || raw.ownerId || raw.creator || '');\n      const gAdmins = Array.isArray(raw.adminIds) ? raw.adminIds : (Array.isArray(raw.admins) ? raw.admins : []);\n\n      groupInfo = {\n        groupId: gId,\n        name: gName || ('Nhóm Zalo ' + gId),\n        avatar: gAvatar,\n        avt: gAvatar,\n        fullAvt: gAvatar,\n        desc: gDesc,\n        creatorId: gCreator,\n        adminIds: gAdmins,\n        totalMember: Number(raw.totalMember || (raw.currentMems ? raw.currentMems.length : 0))\n      };\n    }\n  }\n} catch (e) {\n  groupInfo = null;\n}\n\nlet membersData = {};\ntry {\n  membersData = $('Lấy danh sách thành viên qua UID nhóm').first()?.json || {};\n} catch (e) {\n  membersData = $input.first()?.json || {};\n}\n\nlet memberIds = Array.isArray(membersData.memberIds) ? [...membersData.memberIds] : [];\nconst profiles = (membersData.profiles && typeof membersData.profiles === 'object') ? { ...membersData.profiles } : {};\n\nif (!groupInfo) {\n  const fallbackId = String(webhookData.groupId || membersData.groupId || ('GROUP_' + Date.now()));\n  const fallbackName = String(webhookData.name || webhookData.groupName || ('Nhóm Zalo ' + fallbackId));\n  groupInfo = {\n    groupId: fallbackId,\n    name: fallbackName,\n    avatar: String(webhookData.avatar || ''),\n    avt: String(webhookData.avatar || ''),\n    desc: '',\n    creatorId: String(membersData.creatorId || ''),\n    adminIds: Array.isArray(membersData.adminIds) ? membersData.adminIds : [],\n    totalMember: memberIds.length\n  };\n} else {\n  if (!groupInfo.totalMember || groupInfo.totalMember === 0) {\n    groupInfo.totalMember = memberIds.length;\n  }\n  if (!groupInfo.groupId) {\n    groupInfo.groupId = String(webhookData.groupId || membersData.groupId || ('GROUP_' + Date.now()));\n  }\n}\n\ntry {\n  const linkItem = $('Lấy Thông Tin Từ Link Nhóm').first()?.json;\n  const currentMems = linkItem?.response?.currentMems || linkItem?.currentMems || [];\n  for (const m of currentMems) {\n    if (m && m.id) {\n      const mid = String(m.id);\n      if (!profiles[mid]) {\n        profiles[mid] = {\n          id: mid,\n          displayName: m.dName || m.zaloName || '',\n          zaloName: m.zaloName || '',\n          avatar: m.avatar || m.avatar_25 || '',\n          accountStatus: m.accountStatus || 0\n        };\n      }\n      if (!memberIds.includes(mid)) {\n        memberIds.push(mid);\n      }\n    }\n  }\n} catch (e) {}\n\nif (groupInfo) {\n  groupInfo.totalMember = memberIds.length;\n}\n\nfunction extractUids(obj, set) {\n  if (!obj) return;\n  if (typeof obj === 'string' || typeof obj === 'number') {\n    const s = String(obj).trim();\n    if (/^\\d{8,}$/.test(s)) set.add(s);\n    return;\n  }\n  if (Array.isArray(obj)) {\n    for (const item of obj) extractUids(item, set);\n    return;\n  }\n  if (typeof obj === 'object') {\n    const candidate = obj.userId || obj.id || obj.zaloId || obj.uid || obj.user_id || obj.fId;\n    if (candidate && /^\\d{8,}$/.test(String(candidate))) {\n      set.add(String(candidate));\n    }\n    for (const [k, v] of Object.entries(obj)) {\n      if (/^\\d{8,}$/.test(k)) {\n        set.add(k);\n      }\n      if (['data', 'response', 'items', 'friends', 'sentRequests', 'requests', 'list', 'dataList'].includes(k)) {\n        extractUids(v, set);\n      }\n    }\n  }\n}\n\nconst friendIdsSet = new Set();\ntry {\n  const items = $('Lấy danh sách bạn bè').all();\n  for (const it of items) extractUids(it.json, friendIdsSet);\n} catch (e) {}\n\nconst pendingIdsSet = new Set();\ntry {\n  const items = $('Lấy danh sách lời mời đã gửi').all();\n  for (const it of items) extractUids(it.json, pendingIdsSet);\n} catch (e) {}\n\nconst statusIdsSet = new Set();\ntry {\n  const items = $('Lấy trạng thái lời mời kết bạn').all();\n  for (const it of items) extractUids(it.json, statusIdsSet);\n} catch (e) {}\n\nfor (const id of statusIdsSet) {\n  if (!friendIdsSet.has(id)) {\n    pendingIdsSet.add(id);\n  }\n}\n\nlet friendsCount = 0;\nlet pendingCount = 0;\nlet notFriendCount = 0;\n\nfor (const uid of memberIds) {\n  if (!profiles[uid]) {\n    profiles[uid] = {\n      id: uid,\n      displayName: 'Thành viên (' + uid.slice(-4) + ')'\n    };\n  }\n\n  if (friendIdsSet.has(uid)) {\n    profiles[uid].is_friend = 1;\n    friendsCount++;\n  } else if (pendingIdsSet.has(uid)) {\n    profiles[uid].is_friend = 2;\n    pendingCount++;\n  } else {\n    profiles[uid].is_friend = 0;\n    notFriendCount++;\n  }\n}\n\nreturn [{\n  json: {\n    success: true,\n    response: groupInfo,\n    memberIds: memberIds,\n    profiles: profiles,\n    friendIds: Array.from(friendIdsSet),\n    pendingIds: Array.from(pendingIdsSet),\n    stats: {\n      total: memberIds.length,\n      friendsCount: friendsCount,\n      pendingCount: pendingCount,\n      notFriendCount: notFriendCount\n    },\n    message: `Đã cào nhóm \"${groupInfo.name}\": Thu được ${memberIds.length} thành viên (${friendsCount} bạn bè, ${pendingCount} đang gửi lời mời, ${notFriendCount} chưa kết bạn).`\n  }\n}];"
+        "jsCode": "const webhookData = $('Webhook Cào Nhóm').first()?.json?.body || {};\nlet groupInfo = null;\n\ntry {\n  const linkItem = $('Lấy Thông Tin Từ Link Nhóm').first()?.json;\n  if (linkItem) {\n    const raw = linkItem.response || linkItem.data || linkItem;\n    if (raw && (raw.groupId || raw.grid || raw.name || raw.groupName)) {\n      const gId = String(raw.groupId || raw.grid || raw.id || webhookData.groupId || '');\n      const gName = String(raw.name || raw.groupName || raw.title || webhookData.name || webhookData.groupName || '');\n      const gAvatar = String(raw.avt || raw.fullAvt || raw.avatar || raw.groupAvatar || '');\n      const gDesc = String(raw.desc || raw.description || '');\n      const gCreator = String(raw.creatorId || raw.ownerId || raw.creator || '');\n      const gAdmins = Array.isArray(raw.adminIds) ? raw.adminIds : (Array.isArray(raw.admins) ? raw.admins : []);\n\n      groupInfo = {\n        groupId: gId,\n        name: gName || ('Nhóm Zalo ' + gId),\n        avatar: gAvatar,\n        avt: gAvatar,\n        fullAvt: gAvatar,\n        desc: gDesc,\n        creatorId: gCreator,\n        adminIds: gAdmins,\n        totalMember: Number(raw.totalMember || (raw.currentMems ? raw.currentMems.length : 0))\n      };\n    }\n  }\n} catch (e) {\n  groupInfo = null;\n}\n\nlet membersData = {};\ntry {\n  membersData = $('Lấy danh sách thành viên qua UID nhóm').first()?.json || {};\n} catch (e) {\n  membersData = $input.first()?.json || {};\n}\n\nlet memberIds = Array.isArray(membersData.memberIds) ? [...membersData.memberIds] : [];\nconst profiles = (membersData.profiles && typeof membersData.profiles === 'object') ? { ...membersData.profiles } : {};\n\nif (!groupInfo) {\n  const fallbackId = String(webhookData.groupId || membersData.groupId || ('GROUP_' + Date.now()));\n  const fallbackName = String(webhookData.name || webhookData.groupName || ('Nhóm Zalo ' + fallbackId));\n  groupInfo = {\n    groupId: fallbackId,\n    name: fallbackName,\n    avatar: String(webhookData.avatar || ''),\n    avt: String(webhookData.avatar || ''),\n    desc: '',\n    creatorId: String(membersData.creatorId || ''),\n    adminIds: Array.isArray(membersData.adminIds) ? membersData.adminIds : [],\n    totalMember: memberIds.length\n  };\n} else {\n  if (!groupInfo.totalMember || groupInfo.totalMember === 0) {\n    groupInfo.totalMember = memberIds.length;\n  }\n  if (!groupInfo.groupId) {\n    groupInfo.groupId = String(webhookData.groupId || membersData.groupId || ('GROUP_' + Date.now()));\n  }\n}\n\ntry {\n  const linkItem = $('Lấy Thông Tin Từ Link Nhóm').first()?.json;\n  const currentMems = linkItem?.response?.currentMems || linkItem?.currentMems || [];\n  for (const m of currentMems) {\n    if (m && m.id) {\n      const mid = String(m.id);\n      if (!profiles[mid]) {\n        profiles[mid] = {\n          id: mid,\n          displayName: m.dName || m.zaloName || '',\n          zaloName: m.zaloName || '',\n          avatar: m.avatar || m.avatar_25 || '',\n          accountStatus: m.accountStatus || 0\n        };\n      }\n      if (!memberIds.includes(mid)) {\n        memberIds.push(mid);\n      }\n    }\n  }\n} catch (e) {}\n\nif (groupInfo) {\n  groupInfo.totalMember = memberIds.length;\n}\n\nfunction extractUids(obj, set) {\n  if (!obj) return;\n  if (typeof obj === 'string' || typeof obj === 'number') {\n    const s = String(obj).trim();\n    if (/^\\d{8,}$/.test(s)) set.add(s);\n    return;\n  }\n  if (Array.isArray(obj)) {\n    for (const item of obj) extractUids(item, set);\n    return;\n  }\n  if (typeof obj === 'object') {\n    const candidate = obj.userId || obj.id || obj.zaloId || obj.uid || obj.user_id || obj.fId;\n    if (candidate && /^\\d{8,}$/.test(String(candidate))) {\n      set.add(String(candidate));\n    }\n    for (const [k, v] of Object.entries(obj)) {\n      if (/^\\d{8,}$/.test(k)) {\n        set.add(k);\n      }\n      if (['data', 'response', 'items', 'friends', 'sentRequests', 'requests', 'list', 'dataList'].includes(k)) {\n        extractUids(v, set);\n      }\n    }\n  }\n}\n\nconst friendIdsSet = new Set();\ntry {\n  const items = $('Lấy danh sách bạn bè').all();\n  for (const it of items) extractUids(it.json, friendIdsSet);\n} catch (e) {}\n\nconst pendingIdsSet = new Set();\ntry {\n  const items = $('Lấy danh sách lời mời đã gửi').all();\n  for (const it of items) extractUids(it.json, pendingIdsSet);\n} catch (e) {}\n\nlet friendsCount = 0;\nlet pendingCount = 0;\nlet notFriendCount = 0;\n\nfor (const uid of memberIds) {\n  if (!profiles[uid]) {\n    profiles[uid] = {\n      id: uid,\n      displayName: 'Thành viên (' + uid.slice(-4) + ')'\n    };\n  }\n\n  if (friendIdsSet.has(uid)) {\n    profiles[uid].is_friend = 1;\n    friendsCount++;\n  } else if (pendingIdsSet.has(uid)) {\n    profiles[uid].is_friend = 2;\n    pendingCount++;\n  } else {\n    profiles[uid].is_friend = 0;\n    notFriendCount++;\n  }\n}\n\nreturn [{\n  json: {\n    success: true,\n    response: groupInfo,\n    memberIds: memberIds,\n    profiles: profiles,\n    friendIds: Array.from(friendIdsSet),\n    pendingIds: Array.from(pendingIdsSet),\n    stats: {\n      total: memberIds.length,\n      friendsCount: friendsCount,\n      pendingCount: pendingCount,\n      notFriendCount: notFriendCount\n    },\n    message: `Đã cào nhóm \"${groupInfo.name}\": Thu được ${memberIds.length} thành viên (${friendsCount} bạn bè, ${pendingCount} đang gửi lời mời, ${notFriendCount} chưa kết bạn).`\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        950,
+        700,
         -300
       ],
       "id": "node-code-prepare-scrape",
@@ -120,7 +120,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1200,
+        950,
         -300
       ],
       "id": "node-respond-to-webhook-scrape",
@@ -346,29 +346,6 @@
     },
     {
       "parameters": {
-        "operation": "getFriendRequestStatus",
-        "useSession": true,
-        "connectToId": "717682179432150574"
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        700,
-        -300
-      ],
-      "id": "40967de1-947c-4c4c-856b-24de1c9d8b1b",
-      "name": "Lấy trạng thái lời mời kết bạn",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      },
-      "executeOnce": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -578,12 +555,12 @@
     },
     {
       "parameters": {
-        "jsCode": "function extractUids(obj, set) {\n  if (!obj) return;\n  if (typeof obj === 'string' || typeof obj === 'number') {\n    const s = String(obj).trim();\n    if (/^\\d{8,}$/.test(s)) set.add(s);\n    return;\n  }\n  if (Array.isArray(obj)) {\n    for (const item of obj) extractUids(item, set);\n    return;\n  }\n  if (typeof obj === 'object') {\n    const candidate = obj.userId || obj.id || obj.zaloId || obj.uid || obj.user_id || obj.fId;\n    if (candidate && /^\\d{8,}$/.test(String(candidate))) {\n      set.add(String(candidate));\n    }\n    for (const [k, v] of Object.entries(obj)) {\n      if (/^\\d{8,}$/.test(k)) {\n        set.add(k);\n      }\n      if (['data', 'response', 'items', 'friends', 'sentRequests', 'requests', 'list', 'dataList'].includes(k)) {\n        extractUids(v, set);\n      }\n    }\n  }\n}\n\nconst friendIdsSet = new Set();\ntry {\n  const items = $('Đồng Bộ - Lấy Danh Sách Bạn Bè').all();\n  for (const it of items) extractUids(it.json, friendIdsSet);\n} catch (e) {}\n\nconst pendingIdsSet = new Set();\ntry {\n  const items = $('Đồng Bộ - Lấy Lời Mời Đã Gửi').all();\n  for (const it of items) extractUids(it.json, pendingIdsSet);\n} catch (e) {}\n\nconst statusIdsSet = new Set();\ntry {\n  const items = $('Đồng Bộ - Lấy Trạng Thái Lời Mời').all();\n  for (const it of items) extractUids(it.json, statusIdsSet);\n} catch (e) {}\n\nfor (const id of statusIdsSet) {\n  if (!friendIdsSet.has(id)) {\n    pendingIdsSet.add(id);\n  }\n}\n\nconst friendIds = Array.from(friendIdsSet);\nconst pendingIds = Array.from(pendingIdsSet);\n\nreturn [{\n  json: {\n    success: true,\n    totalFriends: friendIds.length,\n    totalPending: pendingIds.length,\n    friendIds: friendIds,\n    pendingIds: pendingIds,\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "function extractUids(obj, set) {\n  if (!obj) return;\n  if (typeof obj === 'string' || typeof obj === 'number') {\n    const s = String(obj).trim();\n    if (/^\\d{8,}$/.test(s)) set.add(s);\n    return;\n  }\n  if (Array.isArray(obj)) {\n    for (const item of obj) extractUids(item, set);\n    return;\n  }\n  if (typeof obj === 'object') {\n    const candidate = obj.userId || obj.id || obj.zaloId || obj.uid || obj.user_id || obj.fId;\n    if (candidate && /^\\d{8,}$/.test(String(candidate))) {\n      set.add(String(candidate));\n    }\n    for (const [k, v] of Object.entries(obj)) {\n      if (/^\\d{8,}$/.test(k)) {\n        set.add(k);\n      }\n      if (['data', 'response', 'items', 'friends', 'sentRequests', 'requests', 'list', 'dataList'].includes(k)) {\n        extractUids(v, set);\n      }\n    }\n  }\n}\n\nconst friendIdsSet = new Set();\ntry {\n  const items = $('Đồng Bộ - Lấy Danh Sách Bạn Bè').all();\n  for (const it of items) extractUids(it.json, friendIdsSet);\n} catch (e) {}\n\nconst pendingIdsSet = new Set();\ntry {\n  const items = $('Đồng Bộ - Lấy Lời Mời Đã Gửi').all();\n  for (const it of items) extractUids(it.json, pendingIdsSet);\n} catch (e) {}\n\nconst friendIds = Array.from(friendIdsSet);\nconst pendingIds = Array.from(pendingIdsSet);\n\nreturn [{\n  json: {\n    success: true,\n    totalFriends: friendIds.length,\n    totalPending: pendingIds.length,\n    friendIds: friendIds,\n    pendingIds: pendingIds,\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        200,
+        -50,
         650
       ],
       "id": "node-code-summarize-friends",
@@ -598,7 +575,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        450,
+        200,
         650
       ],
       "id": "node-respond-to-webhook-sync-friends",
@@ -641,29 +618,6 @@
       ],
       "id": "node-zalo-sync-sent-requests",
       "name": "Đồng Bộ - Lấy Lời Mời Đã Gửi",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      },
-      "executeOnce": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "operation": "getFriendRequestStatus",
-        "useSession": true,
-        "connectToId": "717682179432150574"
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        -50,
-        650
-      ],
-      "id": "node-zalo-sync-request-status",
-      "name": "Đồng Bộ - Lấy Trạng Thái Lời Mời",
       "credentials": {
         "zaloApi": {
           "id": "kMMCpcPVoMsbnsy7",
@@ -827,7 +781,7 @@
       "main": [
         [
           {
-            "node": "Lấy trạng thái lời mời kết bạn",
+            "node": "Chuẩn Bị Dữ Liệu Cào & Đối Soát Bạn Bè",
             "type": "main",
             "index": 0
           }
@@ -936,17 +890,6 @@
         ]
       ]
     },
-    "Lấy trạng thái lời mời kết bạn": {
-      "main": [
-        [
-          {
-            "node": "Chuẩn Bị Dữ Liệu Cào & Đối Soát Bạn Bè",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Chuẩn Bị Dữ Liệu Cào & Đối Soát Bạn Bè": {
       "main": [
         [
@@ -970,17 +913,6 @@
       ]
     },
     "Đồng Bộ - Lấy Lời Mời Đã Gửi": {
-      "main": [
-        [
-          {
-            "node": "Đồng Bộ - Lấy Trạng Thái Lời Mời",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Đồng Bộ - Lấy Trạng Thái Lời Mời": {
       "main": [
         [
           {
