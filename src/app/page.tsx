@@ -45,6 +45,10 @@ import {
   Star,
   Target,
   ShieldOff,
+  Menu,
+  Grid,
+  MoreHorizontal,
+  FolderX,
 } from "lucide-react";
 import {
   clientGetStats,
@@ -247,6 +251,10 @@ export default function Home() {
   const [autoFriendPreviewMembers, setAutoFriendPreviewMembers] = useState<any[]>([]);
   const [isLoadingAutoFriendPreview, setIsLoadingAutoFriendPreview] = useState<boolean>(false);
   const [autoFriendAvailableCount, setAutoFriendAvailableCount] = useState<number>(0);
+  const [autoFriendSentFilter, setAutoFriendSentFilter] = useState<string>("all");
+  const [autoFriendSearch, setAutoFriendSearch] = useState<string>("");
+  const [autoFriendSelectedIds, setAutoFriendSelectedIds] = useState<string[]>([]);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState<boolean>(false);
 
   // Group Edit Modal State
   const [editingGroupModal, setEditingGroupModal] = useState<any | null>(null);
@@ -301,7 +309,7 @@ export default function Home() {
     } else if (activeTab === "auto_friend") {
       fetchAutoFriendPreview();
     }
-  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberFilterCustomer, memberSortBy, autoFriendGroupId, autoFriendLimit]);
+  }, [activeTab, selectedGroupId, memberFilterRole, memberFilterSent, memberFilterFriend, memberFilterStranger, memberFilterCustomer, memberSortBy, autoFriendGroupId, autoFriendLimit, autoFriendSentFilter, autoFriendSearch]);
 
   const fetchStats = async () => {
     try {
@@ -1063,11 +1071,16 @@ export default function Home() {
         groupId: autoFriendGroupId && autoFriendGroupId !== "all" ? autoFriendGroupId : undefined,
         friendStatus: "not_friend",
         role: "member",
+        sentStatus: autoFriendSentFilter !== "all" ? autoFriendSentFilter : undefined,
+        search: autoFriendSearch.trim() || undefined,
         limit: autoFriendLimit,
       });
       if (data.success) {
-        setAutoFriendPreviewMembers(data.members || []);
-        setAutoFriendAvailableCount(data.pagination?.total || (data.members || []).length);
+        const membersList = data.members || [];
+        setAutoFriendPreviewMembers(membersList);
+        setAutoFriendAvailableCount(data.pagination?.total || membersList.length);
+        // Pre-select all returned candidates
+        setAutoFriendSelectedIds(membersList.map((m: any) => String(m.zalo_id || m.id)));
       }
     } catch (err) {
       console.error("fetchAutoFriendPreview error:", err);
@@ -1089,12 +1102,24 @@ export default function Home() {
       return;
     }
 
-    const countToSend = Math.min(autoFriendLimit, autoFriendPreviewMembers.length);
+    const effectiveTargetIds = autoFriendSelectedIds.length > 0
+      ? autoFriendSelectedIds
+      : autoFriendPreviewMembers.map((m: any) => String(m.zalo_id || m.id));
+
+    const countToSend = Math.min(autoFriendLimit, effectiveTargetIds.length);
+    const filterDesc =
+      autoFriendSentFilter === "unsent"
+        ? "Chưa từng gửi tin tiếp thị"
+        : autoFriendSentFilter === "sent"
+        ? "Đã từng gửi tin tiếp thị"
+        : "Tất cả chưa kết bạn";
+
     const confirmMsg =
       `Xác nhận gửi lời mời kết bạn:\n\n` +
       `• Tài khoản Zalo gửi: ${phoneToUse || "Mặc định n8n"}\n` +
       `• Nguồn thành viên: ${selectedGroupTitle}\n` +
-      `• Số lượng gửi đợt này: ${countToSend} người\n` +
+      `• Bộ lọc đối tượng: ${filterDesc}\n` +
+      `• Số lượng gửi đợt này: ${countToSend} người (Đã chọn: ${effectiveTargetIds.length})\n` +
       `• Giãn cách ngẫu nhiên: ${autoFriendDelayMin}s - ${autoFriendDelayMax}s (chống checkpoint Zalo)\n` +
       `• Lời nhắn: "${autoFriendMessage || "(Mặc định của Zalo)"}"\n\n` +
       `Sau khi gửi, các thành viên này sẽ được tự động chuyển sang trạng thái "⏳ Đang chờ xác nhận".\n\nBạn có muốn bắt đầu?`;
@@ -1112,6 +1137,9 @@ export default function Home() {
         delayMax: autoFriendDelayMax,
         accountPhone: phoneToUse,
         friendMessage: autoFriendMessage,
+        specificMemberIds: effectiveTargetIds,
+        sentStatus: autoFriendSentFilter,
+        search: autoFriendSearch,
       });
 
       setAutoFriendNotice(res.message);
@@ -1250,43 +1278,43 @@ export default function Home() {
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 font-sans">
       {/* Top Navbar */}
       <header className="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-              <Layers className="w-5 h-5" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between h-14 sm:h-16">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0">
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-base sm:text-lg text-white tracking-tight">Zalo Member Hub & Automation</h1>
-                <span className="text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h1 className="font-bold text-base sm:text-lg text-white tracking-tight">SaleZalo</h1>
+                <span className="text-[9px] sm:text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-1.5 sm:px-2 py-0.2 rounded-full flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  Multi-Account n8n
+                  n8n Auto
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Lọc bỏ Trưởng/Phó nhóm • Quản lý nhiều SĐT cào • Chống Spam tiếp thị</p>
+              <p className="hidden md:block text-xs text-slate-400">Lọc bỏ Trưởng/Phó nhóm • Quản lý nhiều SĐT cào • Chống Spam tiếp thị</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             {/* Account Switcher (Avatar Dropdown) */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
-                className="flex items-center gap-2 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 px-2.5 py-1.5 rounded-2xl transition cursor-pointer shadow-sm text-left group"
+                className="flex items-center gap-1.5 sm:gap-2 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 px-2 py-1.5 sm:px-2.5 rounded-2xl transition cursor-pointer shadow-sm text-left group"
                 title="Bấm để chuyển đổi tài khoản Zalo"
               >
                 <div className="relative">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white font-bold text-xs shadow-sm ring-1 ring-white/10">
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white font-bold text-xs shadow-sm ring-1 ring-white/10">
                     {activeAccountObj?.name ? (
                       activeAccountObj.name.slice(0, 1).toUpperCase()
                     ) : (
                       <Phone className="w-3.5 h-3.5" />
                     )}
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900 animate-pulse"></span>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900 animate-pulse"></span>
                 </div>
-                <div className="hidden md:block min-w-0 pr-1">
+                <div className="hidden lg:block min-w-0 pr-1">
                   <div className="text-xs font-semibold text-white truncate max-w-[120px] leading-tight">
                     {activeAccountObj ? (activeAccountObj.name || activeAccountObj.phone) : "Tài Khoản Zalo"}
                   </div>
@@ -1399,16 +1427,26 @@ export default function Home() {
 
             <button
               onClick={() => setShowJsonModal(true)}
-              className="flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-md shadow-blue-600/20 transition cursor-pointer"
+              className="hidden sm:flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-md shadow-blue-600/20 transition cursor-pointer"
             >
               <UploadCloud className="w-3.5 h-3.5" />
               <span>Nạp JSON Test</span>
             </button>
+
+            {/* Mobile More Drawer Button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMoreOpen(true)}
+              className="md:hidden flex items-center justify-center p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer"
+              title="Mở menu chức năng"
+            >
+              <Grid className="w-4 h-4 text-indigo-400" />
+            </button>
           </div>
         </div>
 
-        {/* Tab Navigation: "Tổng Quan Báo Cáo" placed on the FAR LEFT! */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 border-t border-slate-800/60 overflow-x-auto scrollbar-none">
+        {/* Desktop Tab Navigation (hidden on mobile, replaced by bottom bar) */}
+        <div className="hidden md:flex max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-x-1 border-t border-slate-800/60 overflow-x-auto scrollbar-none">
           {/* TAB 1: TỔNG QUAN (OUTERMOST LEFT) */}
           <button
             onClick={() => setActiveTab("overview")}
@@ -1506,7 +1544,7 @@ export default function Home() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-8">
         {/* ================= TAB: OVERVIEW (OUTERMOST) ================= */}
         {activeTab === "overview" && (
           <div className="space-y-6">
@@ -1629,9 +1667,15 @@ export default function Home() {
                   <ShieldCheck className="w-5 h-5 text-blue-400" />
                   Quy trình Cào & Gửi Tin Nhắn Tự Động Qua n8n
                 </h3>
-                <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-                  1. Thêm SĐT Zalo & link Webhook n8n tương ứng $\rightarrow$ 2. Nhập UID hoặc Link mời để n8n cào thành viên $\rightarrow$ 3. Bấm vào nhóm để lọc thành viên $\rightarrow$ 4. Lên chiến dịch chống spam & bắn sang n8n gửi tin.
-                </p>
+                <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm text-slate-300 mt-2">
+                  <span className="bg-slate-800/80 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">1. Thêm SĐT & Webhook</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span className="bg-slate-800/80 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">2. Nhập UID / Link cào</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span className="bg-slate-800/80 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">3. Lọc theo nhóm</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span className="bg-slate-800/80 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700/60 font-medium">4. Gửi tin / Kết bạn n8n</span>
+                </div>
               </div>
               <div className="flex items-center gap-2.5">
                 <button
@@ -1946,7 +1990,7 @@ export default function Home() {
                       title="Quản lý danh sách đen và nhập UID/SĐT hàng loạt"
                     >
                       <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Quản Lý Blacklist & Tiềm Năng</span>
+                      <span><span className="hidden sm:inline">Quản Lý Blacklist & Tiềm Năng</span><span className="sm:hidden">Blacklist/VIP</span></span>
                     </button>
                   </div>
 
@@ -2087,13 +2131,30 @@ export default function Home() {
                         <span>Đã chọn: <strong className="text-white bg-blue-500/20 px-1.5 py-0.5 rounded text-blue-300">{selectedMemberIds.length}</strong> thành viên</span>
                       </div>
                       <div className="flex items-center flex-wrap gap-2">
+                        {/* Chuyển sang Gửi Kết Bạn hàng loạt */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAutoFriendSelectedIds(selectedMemberIds);
+                            if (selectedGroupId && selectedGroupId !== "all") {
+                              setAutoFriendGroupId(selectedGroupId);
+                            }
+                            setActiveTab("auto_friend");
+                          }}
+                          className="text-xs bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 font-semibold px-2.5 py-1.5 rounded-lg border border-pink-500/40 flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                          title="Chuyển các thành viên đã chọn sang công cụ Gửi kết bạn"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 text-pink-400" />
+                          <span><span className="hidden sm:inline">Gửi Kết Bạn</span><span className="sm:hidden">Kết Bạn</span> ({selectedMemberIds.length})</span>
+                        </button>
+
                         {/* Đánh dấu tiềm năng hàng loạt */}
                         <button
                           onClick={() => handleBatchSetCustomerStatus("potential")}
                           className="text-xs bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-medium px-2.5 py-1.5 rounded-lg border border-amber-500/40 flex items-center gap-1.5 transition cursor-pointer shadow-sm"
                         >
                           <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                          <span>Đặt Tiềm Năng</span>
+                          <span><span className="hidden sm:inline">Đặt Tiềm Năng</span><span className="sm:hidden">VIP</span></span>
                         </button>
 
                         {/* Đưa vào Blacklist hàng loạt */}
@@ -2102,7 +2163,7 @@ export default function Home() {
                           className="text-xs bg-red-500/15 hover:bg-red-500/25 text-red-300 font-medium px-2.5 py-1.5 rounded-lg border border-red-500/40 flex items-center gap-1.5 transition cursor-pointer shadow-sm"
                         >
                           <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-                          <span>Đưa Vào Blacklist</span>
+                          <span><span className="hidden sm:inline">Đưa Vào Blacklist</span><span className="sm:hidden">Chặn</span></span>
                         </button>
 
                         {/* Bỏ phân loại hàng loạt */}
@@ -2110,7 +2171,7 @@ export default function Home() {
                           onClick={() => handleBatchSetCustomerStatus("standard")}
                           className="text-xs bg-slate-700/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-600 flex items-center gap-1 transition cursor-pointer"
                         >
-                          <span>Bỏ phân loại</span>
+                          <span><span className="hidden sm:inline">Bỏ phân loại</span><span className="sm:hidden">Bỏ lọc</span></span>
                         </button>
 
                         {/* Xóa thành viên */}
@@ -2579,6 +2640,56 @@ export default function Home() {
                     Chỉ lọc những thành viên chưa kết bạn (loại bỏ Admin và người đã gửi).
                   </p>
                 </div>
+
+                {/* Lọc theo tương tác / Lịch sử chiến dịch */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <Filter className="w-3.5 h-3.5 text-pink-400" />
+                    <span>Lọc đối tượng theo tương tác</span>
+                  </label>
+                  <select
+                    value={autoFriendSentFilter}
+                    onChange={(e) => setAutoFriendSentFilter(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500"
+                  >
+                    <option value="all">🌐 Tất cả thành viên chưa kết bạn</option>
+                    <option value="unsent">✉️ Khách hàng mới (Chưa từng gửi tin tiếp thị)</option>
+                    <option value="sent">💬 Khách hàng đã tiếp cận (Đã từng gửi tin tiếp thị)</option>
+                  </select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Chọn gửi kết bạn cho khách mới hoặc chăm sóc khách cũ.
+                  </p>
+                </div>
+
+                {/* Tìm kiếm nhanh thành viên */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
+                    <Search className="w-3.5 h-3.5 text-pink-400" />
+                    <span>Tìm kiếm theo Tên / Zalo UID</span>
+                  </label>
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Gõ tên hoặc UID để lọc ngay..."
+                      value={autoFriendSearch}
+                      onChange={(e) => setAutoFriendSearch(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-8 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+                    />
+                    {autoFriendSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setAutoFriendSearch("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Lọc tức thì thành viên phù hợp trong bảng xem trước.
+                  </p>
+                </div>
               </div>
 
               {/* Số lượng gửi & Giãn cách */}
@@ -2774,7 +2885,7 @@ export default function Home() {
                     ) : (
                       <>
                         <Send className="w-4 h-4" />
-                        <span>Bắt Đầu Gửi Kết Bạn ({Math.min(autoFriendLimit, autoFriendPreviewMembers.length)} người)</span>
+                        <span>Bắt Đầu Gửi Kết Bạn ({Math.min(autoFriendLimit, autoFriendSelectedIds.length > 0 ? autoFriendSelectedIds.length : autoFriendPreviewMembers.length)} người)</span>
                       </>
                     )}
                   </button>
@@ -2783,27 +2894,60 @@ export default function Home() {
             </div>
 
             {/* Danh Sách Xem Trước Thành Viên Sẽ Nhận Lời Mời */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800/80">
                 <div>
                   <h3 className="font-semibold text-sm text-white flex items-center gap-2">
-                    <Users className="w-4 h-4 text-blue-400" />
-                    Danh Sách Thành Viên Sẽ Gửi Lời Mời (Tối Đa {autoFriendLimit} Người Đợt Này)
+                    <Users className="w-4 h-4 text-pink-400" />
+                    <span>Đối Tượng Sẽ Gửi Lời Mời ({autoFriendPreviewMembers.length} thành viên)</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Hệ thống đã tự động lọc chỉ lấy thành viên chưa kết bạn (➕) và không phải Admin nhóm.
+                    Hệ thống tự động lọc chỉ lấy thành viên chưa kết bạn (➕) và không phải Admin nhóm.
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={fetchAutoFriendPreview}
-                  disabled={isLoadingAutoFriendPreview}
-                  className="text-xs text-slate-400 hover:text-white bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAutoFriendPreview ? "animate-spin text-blue-400" : ""}`} />
-                  <span>Làm mới DS</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  {autoFriendPreviewMembers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (autoFriendSelectedIds.length === autoFriendPreviewMembers.length) {
+                          setAutoFriendSelectedIds([]);
+                        } else {
+                          setAutoFriendSelectedIds(autoFriendPreviewMembers.map((m) => String(m.zalo_id || m.id)));
+                        }
+                      }}
+                      className="text-xs text-pink-300 hover:text-white bg-pink-600/10 hover:bg-pink-600/20 px-2.5 py-1.5 rounded-lg border border-pink-500/30 flex items-center gap-1.5 cursor-pointer font-medium transition"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5 text-pink-400" />
+                      <span>
+                        {autoFriendSelectedIds.length === autoFriendPreviewMembers.length
+                          ? "Bỏ chọn tất cả"
+                          : `Chọn tất cả (${autoFriendPreviewMembers.length})`}
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={fetchAutoFriendPreview}
+                    disabled={isLoadingAutoFriendPreview}
+                    className="text-xs text-slate-400 hover:text-white bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAutoFriendPreview ? "animate-spin text-pink-400" : ""}`} />
+                    <span className="hidden sm:inline">Làm mới</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Status bar */}
+              <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-950/60 border border-slate-800 px-3.5 py-2 rounded-xl">
+                <span>
+                  Đã tích chọn: <strong className="text-pink-400 font-bold">{autoFriendSelectedIds.length}</strong> / {autoFriendPreviewMembers.length} người
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {autoFriendSelectedIds.length === 0 ? "Sẽ gửi theo thứ tự ưu tiên" : "Chỉ gửi cho những người được tích chọn"}
+                </span>
               </div>
 
               {isLoadingAutoFriendPreview ? (
@@ -2820,74 +2964,178 @@ export default function Home() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-800">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
-                      <tr>
-                        <th className="px-4 py-3 w-12 text-center">STT</th>
-                        <th className="px-4 py-3">Thành viên</th>
-                        <th className="px-4 py-3">Zalo UID</th>
-                        <th className="px-4 py-3">Nhóm gốc</th>
-                        <th className="px-4 py-3 text-center">Trạng thái hiện tại</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 bg-slate-900/50">
-                      {autoFriendPreviewMembers.map((m, idx) => (
-                        <tr key={m.zalo_id || m.id} className="hover:bg-slate-800/40 transition">
-                          <td className="px-4 py-3 text-center text-slate-500 font-mono text-[11px]">
-                            {idx + 1}
-                          </td>
-                          <td className="px-4 py-3 flex items-center gap-3">
-                            {m.avatar ? (
-                              <img
-                                src={m.avatar}
-                                alt=""
-                                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs shrink-0">
-                                {m.display_name?.slice(0, 1) || "U"}
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <div className="font-semibold text-white truncate max-w-[200px]">
-                                {m.display_name || "Thành viên"}
-                              </div>
-                              <div className="text-[10px] text-slate-500">
-                                {m.gender === "male" ? "Nam" : m.gender === "female" ? "Nữ" : "Ẩn giới tính"}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-[11px] text-slate-400">
-                            <span className="flex items-center gap-1.5">
-                              {m.zalo_id || m.id}
-                              <button
-                                type="button"
-                                onClick={() => copyToClipboard(m.zalo_id || m.id)}
-                                className="text-slate-500 hover:text-white cursor-pointer"
-                                title="Copy UID"
-                              >
-                                {copiedUid === (m.zalo_id || m.id) ? (
-                                  <Check className="w-3 h-3 text-emerald-400" />
-                                ) : (
-                                  <Copy className="w-3 h-3" />
-                                )}
-                              </button>
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-400 text-xs">
-                            {m.group_name || m.group_id || "Chung"}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                              ➕ Chưa kết bạn
-                            </span>
-                          </td>
+                <>
+                  {/* Desktop Table View (hidden md:block) */}
+                  <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
+                        <tr>
+                          <th className="px-3 py-3 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={autoFriendPreviewMembers.length > 0 && autoFriendSelectedIds.length === autoFriendPreviewMembers.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setAutoFriendSelectedIds(autoFriendPreviewMembers.map((m) => String(m.zalo_id || m.id)));
+                                } else {
+                                  setAutoFriendSelectedIds([]);
+                                }
+                              }}
+                              className="rounded border-slate-700 text-pink-600 focus:ring-pink-500 w-3.5 h-3.5 cursor-pointer"
+                            />
+                          </th>
+                          <th className="px-3 py-3 w-12 text-center">STT</th>
+                          <th className="px-4 py-3">Thành viên</th>
+                          <th className="px-4 py-3">Zalo UID</th>
+                          <th className="px-4 py-3">Nhóm gốc</th>
+                          <th className="px-4 py-3 text-center">Tiếp thị</th>
+                          <th className="px-4 py-3 text-center">Trạng thái</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 bg-slate-900/50">
+                        {autoFriendPreviewMembers.map((m, idx) => {
+                          const id = String(m.zalo_id || m.id);
+                          const isSelected = autoFriendSelectedIds.includes(id);
+                          return (
+                            <tr
+                              key={id}
+                              className={`transition ${isSelected ? "bg-pink-950/10 hover:bg-pink-950/20" : "hover:bg-slate-800/40"}`}
+                            >
+                              <td className="px-3 py-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    setAutoFriendSelectedIds((prev) =>
+                                      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                                    );
+                                  }}
+                                  className="rounded border-slate-700 text-pink-600 focus:ring-pink-500 w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-3 py-3 text-center text-slate-500 font-mono text-[11px]">
+                                {idx + 1}
+                              </td>
+                              <td className="px-4 py-3 flex items-center gap-3">
+                                {m.avatar ? (
+                                  <img
+                                    src={m.avatar}
+                                    alt=""
+                                    className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs shrink-0">
+                                    {m.display_name?.slice(0, 1) || "U"}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-white truncate max-w-[200px]">
+                                    {m.display_name || "Thành viên"}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">
+                                    {m.gender === "male" ? "Nam" : m.gender === "female" ? "Nữ" : "Ẩn giới tính"}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-[11px] text-slate-400">
+                                <span className="flex items-center gap-1.5">
+                                  {id}
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(id)}
+                                    className="text-slate-500 hover:text-white cursor-pointer"
+                                    title="Copy UID"
+                                  >
+                                    {copiedUid === id ? (
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-slate-400 text-xs truncate max-w-[150px]">
+                                {m.group_name || m.group_id || "Chung"}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {m.campaign_sent_count ? (
+                                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
+                                    Đã gửi ({m.campaign_sent_count})
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
+                                    Chưa gửi
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                                  ➕ Chưa KB
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Card List View (md:hidden) */}
+                  <div className="md:hidden space-y-2">
+                    {autoFriendPreviewMembers.map((m, idx) => {
+                      const id = String(m.zalo_id || m.id);
+                      const isSelected = autoFriendSelectedIds.includes(id);
+                      return (
+                        <div
+                          key={id}
+                          onClick={() => {
+                            setAutoFriendSelectedIds((prev) =>
+                              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                            );
+                          }}
+                          className={`p-3 rounded-2xl border transition cursor-pointer flex items-center gap-3 ${
+                            isSelected
+                              ? "bg-pink-950/25 border-pink-500/50 shadow-sm"
+                              : "bg-slate-950/40 border-slate-800 hover:bg-slate-850"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="rounded border-slate-700 text-pink-600 focus:ring-pink-500 w-4 h-4 cursor-pointer shrink-0"
+                          />
+                          {m.avatar ? (
+                            <img
+                              src={m.avatar}
+                              alt=""
+                              className="w-9 h-9 rounded-full object-cover border border-slate-700 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs shrink-0">
+                              {m.display_name?.slice(0, 1) || "U"}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-xs text-white truncate">{m.display_name || "Thành viên"}</div>
+                            <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">UID: {id}</div>
+                            <div className="text-[10px] text-slate-500 truncate">{m.group_name || m.group_id || "Chung"}</div>
+                          </div>
+                          <div className="shrink-0 text-right space-y-1">
+                            <span className="inline-block text-[9px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">
+                              ➕ Chưa KB
+                            </span>
+                            {m.campaign_sent_count ? (
+                              <div className="text-[9px] text-amber-400 font-medium">Đã gửi tin</div>
+                            ) : (
+                              <div className="text-[9px] text-emerald-400 font-medium">Chưa gửi tin</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -5364,6 +5612,243 @@ export default function Home() {
                 className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2 rounded-xl transition cursor-pointer"
               >
                 Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Bar (Fixed at bottom on mobile screens) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/80 px-2 py-1.5 shadow-2xl safe-area-inset-bottom">
+        <div className="grid grid-cols-5 gap-1 items-center">
+          {/* 1. Tổng Quan */}
+          <button
+            type="button"
+            onClick={() => setActiveTab("overview")}
+            className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === "overview"
+                ? "text-cyan-400 bg-cyan-500/10 font-medium"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Sparkles className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] leading-tight">Tổng Quan</span>
+          </button>
+
+          {/* 2. Thành Viên */}
+          <button
+            type="button"
+            onClick={() => setActiveTab("members_hub")}
+            className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition cursor-pointer relative ${
+              activeTab === "members_hub"
+                ? "text-blue-400 bg-blue-500/10 font-medium"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Users className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] leading-tight">Thành Viên</span>
+            {stats.targetMembers > 0 && (
+              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-blue-500" />
+            )}
+          </button>
+
+          {/* 3. Gửi Kết Bạn */}
+          <button
+            type="button"
+            onClick={() => setActiveTab("auto_friend")}
+            className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === "auto_friend"
+                ? "text-pink-400 bg-pink-500/10 font-medium"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <UserPlus className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] leading-tight">Kết Bạn</span>
+          </button>
+
+          {/* 4. Chiến Dịch */}
+          <button
+            type="button"
+            onClick={() => setActiveTab("campaigns")}
+            className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === "campaigns"
+                ? "text-amber-400 bg-amber-500/10 font-medium"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Send className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] leading-tight">Chiến Dịch</span>
+          </button>
+
+          {/* 5. Menu Thêm */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMoreOpen(true)}
+            className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              isMobileMoreOpen || ["groups", "accounts", "settings"].includes(activeTab)
+                ? "text-indigo-400 bg-indigo-500/10 font-medium"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Grid className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] leading-tight">Thêm...</span>
+          </button>
+        </div>
+      </nav>
+
+      {/* Mobile More Sheet / Drawer */}
+      {isMobileMoreOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
+            onClick={() => setIsMobileMoreOpen(false)}
+          />
+
+          {/* Sheet Modal */}
+          <div className="relative z-10 bg-slate-900 border-t border-slate-800 rounded-t-3xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto space-y-4">
+            {/* Sheet Handle & Header */}
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <Grid className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Menu Chức Năng</h3>
+                  <p className="text-[11px] text-slate-400">Truy cập nhanh các công cụ hệ thống</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMoreOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl bg-slate-800/60 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Account Switcher on Mobile */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>SĐT Cào Đang Chọn:</span>
+                </span>
+                <span className="font-mono text-emerald-400 font-semibold">
+                  {activeAccountPhone || (accounts[0]?.phone_number ? `${accounts[0].name || accounts[0].phone_number}` : "Chung hệ thống")}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMoreOpen(false);
+                  setActiveTab("accounts");
+                }}
+                className="w-full text-center py-2 px-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-medium hover:bg-emerald-500/20 transition cursor-pointer"
+              >
+                Đổi SĐT hoặc Thêm Tài Khoản Mới
+              </button>
+            </div>
+
+            {/* Quick Grid Nav */}
+            <div className="grid grid-cols-2 gap-2.5">
+              {/* Thêm & Cào Nhóm */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("groups");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`p-3.5 rounded-2xl border flex flex-col items-start gap-2 transition cursor-pointer text-left ${
+                  activeTab === "groups"
+                    ? "bg-indigo-500/15 border-indigo-500/40 text-indigo-300"
+                    : "bg-slate-850/60 border-slate-800 hover:bg-slate-800 text-slate-300"
+                }`}
+              >
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-white">Thêm & Cào Nhóm</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{groups.length} nhóm đã lưu</div>
+                </div>
+              </button>
+
+              {/* Tài Khoản SĐT */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("accounts");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`p-3.5 rounded-2xl border flex flex-col items-start gap-2 transition cursor-pointer text-left ${
+                  activeTab === "accounts"
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                    : "bg-slate-850/60 border-slate-800 hover:bg-slate-800 text-slate-300"
+                }`}
+              >
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-white">Quản Lý SĐT Cào</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{accounts.length} tài khoản</div>
+                </div>
+              </button>
+
+              {/* Cài Đặt Webhook */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("settings");
+                  setIsMobileMoreOpen(false);
+                }}
+                className={`p-3.5 rounded-2xl border flex flex-col items-start gap-2 transition cursor-pointer text-left ${
+                  activeTab === "settings"
+                    ? "bg-blue-500/15 border-blue-500/40 text-blue-300"
+                    : "bg-slate-850/60 border-slate-800 hover:bg-slate-800 text-slate-300"
+                }`}
+              >
+                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                  <Settings className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-white">Cài Đặt Webhook</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Cấu hình n8n & API</div>
+                </div>
+              </button>
+
+              {/* Nạp JSON Test */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMoreOpen(false);
+                  setShowJsonModal(true);
+                }}
+                className="p-3.5 rounded-2xl border border-slate-800 bg-slate-850/60 hover:bg-slate-800 text-slate-300 flex flex-col items-start gap-2 transition cursor-pointer text-left"
+              >
+                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                  <UploadCloud className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-white">Nạp JSON Test</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Import trực tiếp file</div>
+                </div>
+              </button>
+            </div>
+
+            {/* Quick Blacklist / Leads Button */}
+            <div className="pt-2 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMoreOpen(false);
+                  setShowBlacklistModal(true);
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <ShieldAlert className="w-4 h-4 text-amber-400" />
+                <span>Quản Lý Blacklist & Khách Tiềm Năng</span>
               </button>
             </div>
           </div>

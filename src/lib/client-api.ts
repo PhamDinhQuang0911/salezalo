@@ -684,14 +684,31 @@ export async function clientTriggerSendFriendRequests(params: {
   delayMax?: number;
   accountPhone?: string;
   friendMessage?: string;
+  specificMemberIds?: string[];
+  sentStatus?: string;
+  search?: string;
 }) {
-  const effectiveGroupId = params.targetGroupId && params.targetGroupId !== "all" ? params.targetGroupId : undefined;
-  const { members } = await getMembers({
-    groupId: effectiveGroupId,
-    friendStatus: "not_friend",
-    role: "member",
-    limit: params.limit || 20,
-  });
+  let members: any[] = [];
+  if (params.specificMemberIds && params.specificMemberIds.length > 0) {
+    const { members: allCandidates } = await getMembers({
+      friendStatus: "not_friend",
+      role: "member",
+      limit: 1000,
+    });
+    const selectedSet = new Set(params.specificMemberIds.map(String));
+    members = allCandidates.filter((m: any) => selectedSet.has(String(m.zalo_id || m.id)));
+  } else {
+    const effectiveGroupId = params.targetGroupId && params.targetGroupId !== "all" ? params.targetGroupId : undefined;
+    const res = await getMembers({
+      groupId: effectiveGroupId,
+      friendStatus: "not_friend",
+      role: "member",
+      sentStatus: params.sentStatus && params.sentStatus !== "all" ? (params.sentStatus as any) : undefined,
+      search: params.search?.trim() || undefined,
+      limit: params.limit || 20,
+    });
+    members = res.members || [];
+  }
 
   if (members.length === 0) {
     throw new Error("Không có thành viên nào chưa kết bạn (hoặc tất cả đều đã là bạn / đã gửi lời mời) trong tệp đã chọn.");
