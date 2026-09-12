@@ -170,6 +170,18 @@ export async function clientBatchUpdateCustomerStatus(zaloIds: string[], status:
 
 export async function clientSaveCampaign(id: string | null, data: any) {
   const effectiveGroupId = data.target_group_id && data.target_group_id !== "all" ? data.target_group_id : "";
+  const imageUrls: string[] = Array.isArray(data.image_urls)
+    ? data.image_urls.filter((u: any) => typeof u === "string" && u.trim().length > 0)
+    : (data.image_url ? [data.image_url.trim()] : []);
+
+  const ctaLinks: any[] = Array.isArray(data.cta_links)
+    ? data.cta_links.filter((l: any) => l && (l.url?.trim() || l.label?.trim())).map((l: any) => ({
+        id: l.id || `cta-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        label: l.label?.trim() || "Xem chi tiết",
+        url: l.url?.trim() || "",
+      }))
+    : (data.cta_link ? [{ id: `cta-${Date.now()}`, label: "Xem chi tiết", url: data.cta_link.trim() }] : []);
+
   const campaignPayload: any = {
     name: data.name?.trim(),
     message_template: data.message_template?.trim(),
@@ -181,13 +193,15 @@ export async function clientSaveCampaign(id: string | null, data: any) {
     cooldown_days: data.cooldown_days !== undefined && !isNaN(parseInt(data.cooldown_days)) ? parseInt(data.cooldown_days) : 0,
     auto_friend_first: data.auto_friend_first ? 1 : 0,
     delay_seconds: parseInt(data.delay_seconds) || 15,
-    image_url: data.image_url?.trim() || "",
+    image_url: imageUrls[0] || data.image_url?.trim() || "",
+    image_urls: imageUrls,
     video_url: data.video_url?.trim() || "",
     document_url: data.document_url?.trim() || "",
-    media_url: data.media_url?.trim() || "",
-    media_type: data.media_type?.trim() || "",
+    media_url: data.media_url?.trim() || imageUrls[0] || "",
+    media_type: data.media_type?.trim() || (imageUrls.length > 0 ? "image" : "none"),
     file_name: data.file_name?.trim() || "",
-    cta_link: data.cta_link?.trim() || "",
+    cta_link: ctaLinks[0]?.url || data.cta_link?.trim() || "",
+    cta_links: ctaLinks,
   };
 
   const eligibleRecipients = await getCampaignRecipients(campaignPayload);
@@ -438,10 +452,18 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     );
   }
 
-  const mediaUrl = campaign.media_url || campaign.document_url || campaign.image_url || campaign.video_url || "";
+  const imageUrls: string[] = Array.isArray(campaign.image_urls) && campaign.image_urls.length > 0
+    ? campaign.image_urls
+    : (campaign.image_url ? [campaign.image_url] : []);
+
+  const ctaLinks: any[] = Array.isArray(campaign.cta_links) && campaign.cta_links.length > 0
+    ? campaign.cta_links
+    : (campaign.cta_link ? [{ label: "Xem chi tiết", url: campaign.cta_link }] : []);
+
+  const mediaUrl = campaign.media_url || campaign.document_url || campaign.image_url || campaign.video_url || (imageUrls[0] || "");
   const isVideo = campaign.media_type === "video" || Boolean(campaign.video_url);
   const isDoc = campaign.media_type === "document" || Boolean(campaign.document_url);
-  const isImage = (campaign.media_type === "image" || Boolean(campaign.image_url)) && !isVideo && !isDoc;
+  const isImage = (campaign.media_type === "image" || Boolean(campaign.image_url) || imageUrls.length > 0) && !isVideo && !isDoc;
   const mediaType = isVideo ? "video" : isDoc ? "document" : isImage ? "image" : "none";
 
   const payload = {
@@ -454,10 +476,14 @@ export async function clientTriggerSendCampaign(campaignId: string) {
       mediaType: mediaType,
       mediaUrl: mediaUrl,
       fileName: campaign.file_name || "",
-      imageUrl: isImage ? mediaUrl : (campaign.image_url || ""),
+      imageUrl: isImage ? (imageUrls[0] || mediaUrl) : (campaign.image_url || ""),
+      imageUrls: imageUrls,
+      images: imageUrls,
       videoUrl: isVideo ? mediaUrl : (campaign.video_url || ""),
       documentUrl: isDoc ? mediaUrl : "",
-      ctaLink: campaign.cta_link || "",
+      ctaLink: ctaLinks[0]?.url || campaign.cta_link || "",
+      ctaLinks: ctaLinks,
+      actions: ctaLinks,
     },
     settings: {
       autoFriendFirst: Boolean(campaign.auto_friend_first),

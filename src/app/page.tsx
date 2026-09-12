@@ -177,12 +177,14 @@ export default function Home() {
     auto_friend_first: 0,
     delay_seconds: 15,
     image_url: "",
+    image_urls: [] as string[],
     video_url: "",
     document_url: "",
     media_url: "",
     media_type: "none",
     file_name: "",
     cta_link: "",
+    cta_links: [] as { id: string; label: string; url: string }[],
   };
 
   // Campaigns Tab (Create & Edit & Delete)
@@ -217,6 +219,7 @@ export default function Home() {
   // Media Direct Upload for Campaign (Images, Videos, Documents/PDF/Word)
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [mediaUploadError, setMediaUploadError] = useState("");
+  const [newImageUrlInput, setNewImageUrlInput] = useState("");
   const [uploadedMediaInfo, setUploadedMediaInfo] = useState<{
     name: string;
     size: number;
@@ -983,15 +986,19 @@ export default function Home() {
       });
 
       if (result.mediaType === "image") {
-        setCampaignForm((prev) => ({
-          ...prev,
-          image_url: result.url,
-          media_url: result.url,
-          media_type: "image",
-          file_name: result.name,
-          video_url: "",
-          document_url: "",
-        }));
+        setCampaignForm((prev) => {
+          const updated = [...(prev.image_urls || []), result.url];
+          return {
+            ...prev,
+            image_url: updated[0] || result.url,
+            image_urls: updated,
+            media_url: updated[0] || result.url,
+            media_type: "image",
+            file_name: result.name,
+            video_url: "",
+            document_url: "",
+          };
+        });
       } else if (result.mediaType === "video") {
         setCampaignForm((prev) => ({
           ...prev,
@@ -1000,6 +1007,7 @@ export default function Home() {
           media_type: "video",
           file_name: result.name,
           image_url: "",
+          image_urls: [],
           document_url: "",
         }));
       } else {
@@ -1011,6 +1019,7 @@ export default function Home() {
           media_type: "document",
           file_name: result.name,
           image_url: "",
+          image_urls: [],
           video_url: "",
         }));
       }
@@ -1022,12 +1031,149 @@ export default function Home() {
     }
   };
 
+  const handleMultipleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    e.target.value = ""; // Reset input
+
+    setMediaUploadError("");
+    setIsUploadingMedia(true);
+
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith("image/") && !/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.name)) {
+          throw new Error(`Tệp "${file.name}" không phải định dạng ảnh hợp lệ (JPG, PNG, WEBP).`);
+        }
+        if (file.size > 20 * 1024 * 1024) {
+          throw new Error(`Ảnh "${file.name}" quá lớn (>20MB). Vui lòng chọn ảnh dưới 20MB.`);
+        }
+      }
+
+      const results = await Promise.all(files.map((file) => uploadMediaFile(file)));
+      const successfulUrls = results.filter((r) => r.url && r.mediaType === "image").map((r) => r.url);
+
+      if (successfulUrls.length > 0) {
+        setCampaignForm((prev) => {
+          const updatedImages = [...(prev.image_urls || []), ...successfulUrls];
+          return {
+            ...prev,
+            image_urls: updatedImages,
+            image_url: updatedImages[0] || "",
+            media_url: updatedImages[0] || "",
+            media_type: "image",
+            video_url: "",
+            document_url: "",
+          };
+        });
+
+        setUploadedMediaInfo({
+          name: `${successfulUrls.length} ảnh mới đã tải lên`,
+          size: 0,
+          mediaType: "image",
+          previewUrl: successfulUrls[0],
+        });
+      }
+    } catch (err: any) {
+      console.error("Multiple image upload error:", err);
+      setMediaUploadError(err.message || "Lỗi khi tải ảnh lên");
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  const handleAddImageUrl = () => {
+    const trimmed = newImageUrlInput.trim();
+    if (!trimmed) return;
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      setMediaUploadError("Link ảnh phải bắt đầu bằng http:// hoặc https://");
+      return;
+    }
+    setCampaignForm((prev) => {
+      const updated = [...(prev.image_urls || []), trimmed];
+      return {
+        ...prev,
+        image_urls: updated,
+        image_url: updated[0] || "",
+        media_url: updated[0] || "",
+        media_type: "image",
+        video_url: "",
+        document_url: "",
+      };
+    });
+    setNewImageUrlInput("");
+    setMediaUploadError("");
+  };
+
+  const handleRemoveSingleImage = (indexToRemove: number) => {
+    setCampaignForm((prev) => {
+      const updated = (prev.image_urls || []).filter((_, idx) => idx !== indexToRemove);
+      return {
+        ...prev,
+        image_urls: updated,
+        image_url: updated[0] || "",
+        media_url: updated[0] || "",
+        media_type: updated.length > 0 ? "image" : "none",
+      };
+    });
+  };
+
+  const handleClearAllImages = () => {
+    setCampaignForm((prev) => ({
+      ...prev,
+      image_urls: [],
+      image_url: "",
+      media_url: "",
+      media_type: "none",
+    }));
+    if (uploadedMediaInfo?.mediaType === "image") {
+      setUploadedMediaInfo(null);
+    }
+  };
+
+  // CTA Links Management
+  const handleAddCtaLink = (defaultLabel = "Xem chi tiết", defaultUrl = "") => {
+    const newId = `cta-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setCampaignForm((prev) => {
+      const updated = [...(prev.cta_links || []), { id: newId, label: defaultLabel, url: defaultUrl }];
+      return {
+        ...prev,
+        cta_links: updated,
+        cta_link: updated[0]?.url || "",
+      };
+    });
+  };
+
+  const handleUpdateCtaLink = (id: string, field: "label" | "url", value: string) => {
+    setCampaignForm((prev) => {
+      const updated = (prev.cta_links || []).map((item) =>
+        item.id === id ? { ...item, [field]: value } : item
+      );
+      return {
+        ...prev,
+        cta_links: updated,
+        cta_link: updated[0]?.url || "",
+      };
+    });
+  };
+
+  const handleRemoveCtaLink = (id: string) => {
+    setCampaignForm((prev) => {
+      const updated = (prev.cta_links || []).filter((item) => item.id !== id);
+      return {
+        ...prev,
+        cta_links: updated,
+        cta_link: updated[0]?.url || "",
+      };
+    });
+  };
+
   const handleRemoveMedia = () => {
     setUploadedMediaInfo(null);
     setMediaUploadError("");
     setCampaignForm((prev) => ({
       ...prev,
       image_url: "",
+      image_urls: [],
       video_url: "",
       document_url: "",
       media_url: "",
@@ -1158,12 +1304,25 @@ export default function Home() {
   const handleEditCampaign = (c: any) => {
     setEditingCampaignId(c.id);
     setMediaUploadError("");
-    if (c.image_url) {
+
+    const rawImageUrls: string[] = Array.isArray(c.image_urls) && c.image_urls.length > 0
+      ? c.image_urls
+      : (c.image_url ? [c.image_url] : []);
+
+    const rawCtaLinks: { id: string; label: string; url: string }[] = Array.isArray(c.cta_links) && c.cta_links.length > 0
+      ? c.cta_links.map((item: any, idx: number) => ({
+          id: item.id || `cta-${Date.now()}-${idx}`,
+          label: item.label || "Xem chi tiết",
+          url: item.url || "",
+        }))
+      : (c.cta_link ? [{ id: `cta-${Date.now()}-0`, label: "Xem chi tiết", url: c.cta_link }] : []);
+
+    if (rawImageUrls.length > 0) {
       setUploadedMediaInfo({
-        name: "Hình ảnh đính kèm",
+        name: `${rawImageUrls.length} hình ảnh đính kèm`,
         size: 0,
         mediaType: "image",
-        previewUrl: c.image_url || c.media_url,
+        previewUrl: rawImageUrls[0] || c.media_url,
       });
     } else if (c.video_url || c.media_type === "video") {
       setUploadedMediaInfo({
@@ -1194,13 +1353,15 @@ export default function Home() {
       cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 0,
       auto_friend_first: c.auto_friend_first || 0,
       delay_seconds: c.delay_seconds || 15,
-      image_url: c.image_url || "",
+      image_url: rawImageUrls[0] || c.image_url || "",
+      image_urls: rawImageUrls,
       video_url: c.video_url || "",
       document_url: c.document_url || "",
-      media_url: c.media_url || "",
-      media_type: c.media_type || "none",
+      media_url: c.media_url || (rawImageUrls[0] || ""),
+      media_type: c.media_type || (rawImageUrls.length > 0 ? "image" : "none"),
       file_name: c.file_name || "",
-      cta_link: c.cta_link || "",
+      cta_link: rawCtaLinks[0]?.url || c.cta_link || "",
+      cta_links: rawCtaLinks,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -3888,56 +4049,98 @@ export default function Home() {
 
                   {/* 3 Media Types: Image, Video, Document */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
-                    {/* Col 1: Hình Ảnh */}
+                    {/* Col 1: Hình Ảnh (Hỗ trợ tải nhiều ảnh) */}
                     <div className="space-y-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
                       <label className="block text-xs font-medium text-slate-300 flex items-center justify-between">
                         <span className="flex items-center gap-1.5 text-cyan-400">
                           <ImageIcon className="w-3.5 h-3.5" />
-                          <span>1. Hình Ảnh (Image)</span>
+                          <span>1. Hình Ảnh (Đa ảnh)</span>
                         </span>
-                        <span className="text-[10px] text-slate-500">JPG, PNG &lt; 10MB</span>
+                        <span className="text-[10px] text-cyan-400/90 font-mono font-medium">
+                          {(campaignForm.image_urls || []).length > 0
+                            ? `Đã chọn ${(campaignForm.image_urls || []).length} ảnh`
+                            : "JPG, PNG < 20MB"}
+                        </span>
                       </label>
 
                       <div className="flex items-center gap-2">
                         <label className="flex-1 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 text-slate-200 hover:text-white border border-slate-700 hover:border-cyan-500/50 rounded-xl px-3 py-2 text-xs cursor-pointer transition-all shadow-sm">
                           <UploadCloud className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Chọn Ảnh Từ Máy</span>
+                          <span>Chọn Nhiều Ảnh Từ Máy</span>
                           <input
                             type="file"
+                            multiple
                             accept="image/jpeg,image/png,image/webp,image/gif"
                             className="hidden"
-                            onChange={(e) => handleMediaFileUpload(e, "image")}
+                            onChange={handleMultipleImageUpload}
                             disabled={isUploadingMedia}
                           />
                         </label>
                       </div>
 
-                      <input
-                        type="url"
-                        placeholder="Hoặc dán link: https://.../img.jpg"
-                        value={campaignForm.image_url}
-                        onChange={(e) => {
-                          setCampaignForm({
-                            ...campaignForm,
-                            image_url: e.target.value,
-                            media_url: e.target.value,
-                            media_type: "image",
-                            video_url: "",
-                            document_url: "",
-                          });
-                          if (e.target.value) {
-                            setUploadedMediaInfo({
-                              name: "Link ảnh ngoài",
-                              size: 0,
-                              mediaType: "image",
-                              previewUrl: e.target.value,
-                            });
-                          } else if (uploadedMediaInfo?.mediaType === "image") {
-                            setUploadedMediaInfo(null);
-                          }
-                        }}
-                        className="w-full bg-slate-900 border border-slate-750 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
-                      />
+                      {/* Add Image by Link */}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="url"
+                          placeholder="Hoặc dán link ảnh: https://.../anh.jpg"
+                          value={newImageUrlInput}
+                          onChange={(e) => setNewImageUrlInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddImageUrl();
+                            }
+                          }}
+                          className="flex-1 bg-slate-900 border border-slate-750 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddImageUrl}
+                          disabled={!newImageUrlInput.trim()}
+                          className="bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 border border-cyan-500/40 px-2.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-40 transition shrink-0"
+                        >
+                          + Thêm
+                        </button>
+                      </div>
+
+                      {/* Image Thumbnails Gallery */}
+                      {(campaignForm.image_urls || []).length > 0 && (
+                        <div className="pt-1 space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px] text-slate-400">
+                            <span className="font-medium text-slate-300">Danh sách {(campaignForm.image_urls || []).length} ảnh gửi kèm:</span>
+                            <button
+                              type="button"
+                              onClick={handleClearAllImages}
+                              className="text-red-400 hover:text-red-300 text-[10px] cursor-pointer hover:underline"
+                            >
+                              Xóa tất cả
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto pr-1">
+                            {(campaignForm.image_urls || []).map((url, idx) => (
+                              <div key={idx} className="relative group rounded-lg overflow-hidden border border-slate-750 bg-slate-900 aspect-square">
+                                <img
+                                  src={url}
+                                  alt={`img-${idx}`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e: any) => { e.target.src = "https://placehold.co/100x100?text=Ảnh+lỗi"; }}
+                                />
+                                <span className="absolute bottom-0.5 left-0.5 bg-black/80 text-[9px] font-mono px-1 rounded text-white">
+                                  #{idx + 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSingleImage(idx)}
+                                  className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600/90 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition cursor-pointer shadow-sm"
+                                  title="Xóa ảnh này"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Col 2: Video */}
@@ -3975,6 +4178,7 @@ export default function Home() {
                             media_url: e.target.value,
                             media_type: "video",
                             image_url: "",
+                            image_urls: [],
                             document_url: "",
                           });
                           if (e.target.value) {
@@ -4027,6 +4231,7 @@ export default function Home() {
                             media_url: e.target.value,
                             media_type: "document",
                             image_url: "",
+                            image_urls: [],
                             video_url: "",
                           });
                           if (e.target.value) {
@@ -4045,23 +4250,128 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* CTA Link Bar */}
-                  <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
-                    <span className="flex items-center gap-1.5 text-blue-400 text-xs font-medium shrink-0">
-                      <LinkIcon className="w-3.5 h-3.5" />
-                      <span>Link Kêu Gọi / Landing Page (Tùy chọn):</span>
-                    </span>
-                    <input
-                      type="url"
-                      placeholder="https://yourlandingpage.com (Tự động đính kèm nút xem thêm vào cuối tin)"
-                      value={campaignForm.cta_link}
-                      onChange={(e) => setCampaignForm({ ...campaignForm, cta_link: e.target.value })}
-                      className="flex-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                  {/* Multi-CTA Links Section */}
+                  <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 text-xs font-semibold text-white">
+                          <LinkIcon className="w-4 h-4 text-blue-400" />
+                          <span>Nút Bấm & Link Hành Động (CTA - Call To Action)</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono font-semibold">
+                            {(campaignForm.cta_links || []).length} nút
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Tùy chỉnh các nút bấm hành động cụ thể (Đăng ký mua sách, Follow Fanpage, Vào nhóm...) đính kèm dưới tin nhắn
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("Xem chi tiết", "https://")}
+                        className="self-start sm:self-auto bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm Nút Link</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Preset Buttons */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <span className="text-[11px] text-slate-500 font-medium">Gợi ý nhanh:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("📚 Đăng ký mua sách", "https://")}
+                        className="px-2 py-0.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-750 hover:border-blue-500/50 rounded-lg transition cursor-pointer"
+                      >
+                        + 📚 Đăng ký mua sách
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("🌐 Follow Fanpage", "https://facebook.com/")}
+                        className="px-2 py-0.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-750 hover:border-blue-500/50 rounded-lg transition cursor-pointer"
+                      >
+                        + 🌐 Follow Fanpage
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("👥 Tham gia nhóm Zalo", "https://zalo.me/g/")}
+                        className="px-2 py-0.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-750 hover:border-blue-500/50 rounded-lg transition cursor-pointer"
+                      >
+                        + 👥 Vào nhóm Zalo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("🎁 Nhận quà miễn phí", "https://")}
+                        className="px-2 py-0.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-750 hover:border-blue-500/50 rounded-lg transition cursor-pointer"
+                      >
+                        + 🎁 Nhận quà ưu đãi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("💬 Nhắn tin tư vấn", "https://zalo.me/")}
+                        className="px-2 py-0.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-750 hover:border-blue-500/50 rounded-lg transition cursor-pointer"
+                      >
+                        + 💬 Nhắn tin tư vấn
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddCtaLink("📺 Xem video chi tiết", "https://youtube.com/")}
+                        className="px-2 py-0.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-750 hover:border-blue-500/50 rounded-lg transition cursor-pointer"
+                      >
+                        + 📺 Xem video
+                      </button>
+                    </div>
+
+                    {/* CTA Links List */}
+                    {(campaignForm.cta_links || []).length === 0 ? (
+                      <div className="p-3.5 rounded-xl border border-dashed border-slate-800 text-center text-xs text-slate-500">
+                        Chưa có nút hành động nào. Hãy bấm vào các gợi ý nhanh ở trên hoặc nút &quot;Thêm Nút Link&quot; để gắn link chuyển hướng.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 pt-1">
+                        {(campaignForm.cta_links || []).map((link, idx) => (
+                          <div
+                            key={link.id || idx}
+                            className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
+                          >
+                            <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded border border-slate-800 shrink-0 text-center">
+                              Nút #{idx + 1}
+                            </span>
+                            <div className="w-full sm:w-60">
+                              <input
+                                type="text"
+                                placeholder="Hành động (vd: Đăng ký mua sách)"
+                                value={link.label}
+                                onChange={(e) => handleUpdateCtaLink(link.id, "label", e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-medium"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <input
+                                type="url"
+                                placeholder="Link đích: https://..."
+                                value={link.url}
+                                onChange={(e) => handleUpdateCtaLink(link.id, "url", e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-blue-300 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCtaLink(link.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition cursor-pointer shrink-0 self-end sm:self-auto"
+                              title="Xóa nút này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Active Media Badge */}
-                  {(campaignForm.image_url || campaignForm.video_url || campaignForm.document_url || uploadedMediaInfo) && (
+                  {((campaignForm.image_urls || []).length > 0 || campaignForm.image_url || campaignForm.video_url || campaignForm.document_url || uploadedMediaInfo) && (
                     <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-750 flex items-center justify-between text-xs text-slate-200">
                       <div className="flex items-center gap-2.5 truncate">
                         {campaignForm.video_url || uploadedMediaInfo?.mediaType === "video" ? (
@@ -4077,8 +4387,10 @@ export default function Home() {
                             ? "Video:"
                             : campaignForm.document_url || uploadedMediaInfo?.mediaType === "document"
                             ? "Tài liệu (PDF/Word):"
+                            : (campaignForm.image_urls || []).length > 1
+                            ? `${(campaignForm.image_urls || []).length} hình ảnh Zalo:`
                             : "Ảnh:"}{" "}
-                          {uploadedMediaInfo?.name || campaignForm.file_name || "Tệp đính kèm"}
+                          {uploadedMediaInfo?.name || campaignForm.file_name || ((campaignForm.image_urls || []).length > 1 ? `${(campaignForm.image_urls || []).length} tệp ảnh` : "Tệp đính kèm")}
                         </span>
                         {uploadedMediaInfo?.size ? (
                           <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded font-mono">
@@ -4092,7 +4404,7 @@ export default function Home() {
                         type="button"
                         onClick={handleRemoveMedia}
                         className="text-slate-400 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
-                        title="Xóa tệp đính kèm"
+                        title="Xóa toàn bộ tệp đính kèm"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -4171,7 +4483,7 @@ export default function Home() {
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Kêu gọi hành động hấp dẫn (Tăng tỷ lệ tương tác & chuyển đổi sales, kích thích trả lời)")}
+                          onClick={() => handleAiRewrite("Kêu gọi hành động hấp dẫn (Bắt buộc giữ đầy đủ 100% mọi thông tin, chi tiết và link gốc, kích thích tương tác & chuyển đổi sales)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-indigo-900/50 border border-slate-700/70 hover:border-indigo-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
                           <Wand2 className="w-3 h-3 text-indigo-400" />
@@ -4180,7 +4492,7 @@ export default function Home() {
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Tự nhiên, thân thiện như bạn bè tâm tình trao đổi, không lộ liễu mùi quảng cáo")}
+                          onClick={() => handleAiRewrite("Tự nhiên, thân thiện như bạn bè tâm tình (Bắt buộc giữ đầy đủ 100% tất cả thông tin, diễn đạt gần gũi, không lộ mùi quảng cáo thô cứng)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-emerald-900/50 border border-slate-700/70 hover:border-emerald-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
                           <span>💬 Thân thiện & Tự nhiên</span>
@@ -4188,15 +4500,15 @@ export default function Home() {
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Cực kỳ ngắn gọn, súc tích dưới 3 câu, vào thẳng vấn đề để đọc nhanh trên thông báo Zalo")}
+                          onClick={() => handleAiRewrite("Mạch lạc, chuyên nghiệp, rõ ràng (Bắt buộc giữ đầy đủ 100% nội dung gốc, ngắt ý thông thoáng, làm nổi bật các ý chính trên Zalo)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-amber-900/50 border border-slate-700/70 hover:border-amber-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
-                          <span>⚡ Ngắn gọn súc tích</span>
+                          <span>⚡ Mạch lạc & Chuyên nghiệp</span>
                         </button>
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Tặng quà, chia sẻ tài liệu hữu ích miễn phí để tạo thiện cảm và thu hút người nhận")}
+                          onClick={() => handleAiRewrite("Tặng quà, chia sẻ giá trị (Bắt buộc giữ đầy đủ 100% nội dung quà tặng/ưu đãi, tạo thiện cảm và thu hút người nhận)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-pink-900/50 border border-slate-700/70 hover:border-pink-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
                           <span>🎁 Tặng quà / Chia sẻ</span>
@@ -4274,22 +4586,46 @@ export default function Home() {
 
                   {/* Live Preview Box */}
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-2">
-                      Xem trước tin nhắn Zalo gửi đi (Live Preview)
+                    <label className="block text-xs font-medium text-slate-400 mb-2 flex items-center justify-between">
+                      <span>Xem trước tin nhắn Zalo gửi đi (Live Preview)</span>
+                      <span className="text-[10px] text-emerald-400 font-mono">● Mô phỏng Zalo</span>
                     </label>
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs space-y-2 max-h-[300px] overflow-y-auto">
-                      {campaignForm.image_url && (
-                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
-                          <img
-                            src={uploadedMediaInfo?.previewUrl || campaignForm.image_url}
-                            alt="Preview"
-                            className="w-full h-36 object-cover"
-                            onError={(e: any) => { e.target.style.display = 'none'; }}
-                          />
+                    <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-xs space-y-2.5 max-h-[340px] overflow-y-auto shadow-inner">
+                      {/* Images Preview: Single or Multi-image Album Grid */}
+                      {((campaignForm.image_urls || []).length > 0 || campaignForm.image_url) && (
+                        <div>
+                          {(campaignForm.image_urls || []).length > 1 ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[10px] text-cyan-400 font-semibold px-0.5">
+                                <span>📸 Album Zalo: {(campaignForm.image_urls || []).length} ảnh</span>
+                              </div>
+                              <div className={`grid gap-1 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 ${(campaignForm.image_urls || []).length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                                {(campaignForm.image_urls || []).map((imgUrl, i) => (
+                                  <div key={i} className="aspect-square relative overflow-hidden bg-slate-950">
+                                    <img
+                                      src={imgUrl}
+                                      alt={`preview-${i}`}
+                                      className="w-full h-full object-cover"
+                                      onError={(e: any) => { e.target.style.display = 'none'; }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
+                              <img
+                                src={(campaignForm.image_urls && campaignForm.image_urls[0]) || uploadedMediaInfo?.previewUrl || campaignForm.image_url}
+                                alt="Preview"
+                                className="w-full h-36 object-cover"
+                                onError={(e: any) => { e.target.style.display = 'none'; }}
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                       {campaignForm.video_url && (
-                        <div className="rounded-lg overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
+                        <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
                           <video
                             src={uploadedMediaInfo?.previewUrl || campaignForm.video_url}
                             controls
@@ -4315,11 +4651,32 @@ export default function Home() {
                           ? campaignForm.message_template.replace("{name}", "Thanh Loan")
                           : "(Nội dung tin nhắn sẽ hiển thị tại đây...)"}
                       </div>
-                      {campaignForm.cta_link && (
-                        <div className="pt-1">
-                          <a href="#" className="text-[11px] text-blue-400 underline flex items-center gap-1">
-                            {campaignForm.cta_link} <ExternalLink className="w-3 h-3" />
-                          </a>
+
+                      {/* Action CTA Buttons in Preview */}
+                      {((campaignForm.cta_links || []).length > 0 || campaignForm.cta_link) && (
+                        <div className="pt-2 space-y-1.5 border-t border-slate-800/80">
+                          <div className="text-[10px] text-slate-400 font-medium">Nút bấm tương tác:</div>
+                          {(campaignForm.cta_links || []).length > 0 ? (
+                            <div className="space-y-1.5">
+                              {(campaignForm.cta_links || []).filter((l) => l.label || l.url).map((link, idx) => (
+                                <a
+                                  key={link.id || idx}
+                                  href={link.url || "#"}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 hover:text-blue-200 text-xs font-semibold shadow-xs transition group"
+                                >
+                                  <span className="truncate">{link.label || "Xem chi tiết"}</span>
+                                  <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1.5 group-hover:translate-x-0.5 transition-transform" />
+                                </a>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-600/15 border border-blue-500/30 text-blue-300 text-xs font-semibold">
+                              <span className="truncate">{campaignForm.cta_link}</span>
+                              <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1.5" />
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -4485,9 +4842,18 @@ export default function Home() {
                           <span>• Giới hạn: tối đa {c.max_recipients || 100} người</span>
                           <span>• Delay: {c.delay_seconds || 15}s</span>
                           {Boolean(c.auto_friend_first) && <span className="text-blue-400 font-medium">• Tự kết bạn trước</span>}
-                          {c.image_url && <span className="text-cyan-400">• Kèm Ảnh</span>}
+                          {Array.isArray(c.image_urls) && c.image_urls.length > 1 ? (
+                            <span className="text-cyan-400 font-medium">• Kèm {c.image_urls.length} Ảnh</span>
+                          ) : (c.image_url || (Array.isArray(c.image_urls) && c.image_urls.length === 1)) ? (
+                            <span className="text-cyan-400">• Kèm Ảnh</span>
+                          ) : null}
                           {c.video_url && <span className="text-rose-400">• Kèm Video</span>}
-                          {c.cta_link && <span className="text-indigo-400">• Kèm Link CTA</span>}
+                          {c.document_url && <span className="text-amber-400">• Kèm Tài Liệu</span>}
+                          {Array.isArray(c.cta_links) && c.cta_links.length > 1 ? (
+                            <span className="text-indigo-400 font-medium">• Kèm {c.cta_links.length} Link CTA</span>
+                          ) : (c.cta_link || (Array.isArray(c.cta_links) && c.cta_links.length === 1)) ? (
+                            <span className="text-indigo-400">• Kèm Link CTA</span>
+                          ) : null}
                         </div>
                       </div>
 
