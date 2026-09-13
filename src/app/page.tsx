@@ -226,6 +226,7 @@ export default function Home() {
     mediaType: "image" | "video" | "document";
     previewUrl: string;
   } | null>(null);
+  const [imagePreviewMap, setImagePreviewMap] = useState<Record<string, string>>({});
 
   // Gemini AI Message Rewriter States
   const [geminiApiKey, setGeminiApiKey] = useState<string>("");
@@ -978,6 +979,9 @@ export default function Home() {
 
     try {
       const result = await uploadMediaFile(file);
+      if (result.base64 && result.url) {
+        setImagePreviewMap((prev) => ({ ...prev, [result.url]: result.base64! }));
+      }
       setUploadedMediaInfo({
         name: result.name,
         size: result.size,
@@ -1053,6 +1057,14 @@ export default function Home() {
       const successfulUrls = results.filter((r) => r.url && r.mediaType === "image").map((r) => r.url);
 
       if (successfulUrls.length > 0) {
+        const newPreviewEntries: Record<string, string> = {};
+        results.forEach((r) => {
+          if (r.url && r.base64) {
+            newPreviewEntries[r.url] = r.base64;
+          }
+        });
+        setImagePreviewMap((prev) => ({ ...prev, ...newPreviewEntries }));
+
         setCampaignForm((prev) => {
           const updatedImages = [...(prev.image_urls || []), ...successfulUrls];
           return {
@@ -1070,7 +1082,7 @@ export default function Home() {
           name: `${successfulUrls.length} ảnh mới đã tải lên`,
           size: 0,
           mediaType: "image",
-          previewUrl: successfulUrls[0],
+          previewUrl: results[0]?.base64 || successfulUrls[0],
         });
       }
     } catch (err: any) {
@@ -1607,99 +1619,102 @@ export default function Home() {
         </div>
 
         {/* Desktop Tab Navigation (hidden on mobile, replaced by bottom bar) */}
-        <div className="hidden md:flex max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-x-1 border-t border-slate-800/60 overflow-x-auto scrollbar-none">
-          {/* TAB 1: TỔNG QUAN (OUTERMOST LEFT) */}
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === "overview"
-                ? "border-blue-500 text-blue-400 bg-blue-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-            <span>Tổng Quan Báo Cáo</span>
-          </button>
+        <div className="hidden md:flex max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 border-t border-slate-800/60 items-center justify-between flex-wrap gap-1">
+          <div className="flex items-center flex-wrap gap-1">
+            {/* TAB 1: TỔNG QUAN */}
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`py-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
+                activeTab === "overview"
+                  ? "border-cyan-500 text-cyan-400 bg-cyan-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <span>Tổng Quan</span>
+            </button>
 
-          {/* TAB 2: THÀNH VIÊN & BỘ LỌC NHÓM */}
-          <button
-            onClick={() => setActiveTab("members_hub")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === "members_hub"
-                ? "border-blue-500 text-blue-400 bg-blue-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Users className="w-4 h-4 text-blue-400" />
-            <span>Thành Viên & Bộ Lọc Nhóm</span>
-            <span className="bg-blue-500/20 text-blue-300 text-[11px] px-1.5 py-0.2 rounded-full font-semibold">
-              {stats.targetMembers}
-            </span>
-          </button>
+            {/* TAB 2: THÀNH VIÊN */}
+            <button
+              onClick={() => setActiveTab("members_hub")}
+              className={`py-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
+                activeTab === "members_hub"
+                  ? "border-blue-500 text-blue-400 bg-blue-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Users className="w-4 h-4 text-blue-400" />
+              <span>Thành Viên</span>
+              <span className="bg-blue-500/20 text-blue-300 text-[11px] px-1.5 py-0.2 rounded-full font-semibold">
+                {stats.targetMembers}
+              </span>
+            </button>
 
-          {/* TAB 3: GỬI KẾT BẠN (AUTO-FRIEND) */}
-          <button
-            onClick={() => setActiveTab("auto_friend")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === "auto_friend"
-                ? "border-pink-500 text-pink-400 bg-pink-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <UserPlus className="w-4 h-4 text-pink-400" />
-            <span>Gửi Kết Bạn (Auto-Friend)</span>
-          </button>
+            {/* TAB 3: GỬI KẾT BẠN */}
+            <button
+              onClick={() => setActiveTab("auto_friend")}
+              className={`py-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
+                activeTab === "auto_friend"
+                  ? "border-pink-500 text-pink-400 bg-pink-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <UserPlus className="w-4 h-4 text-pink-400" />
+              <span>Gửi Kết Bạn</span>
+            </button>
 
-          {/* TAB 4: TÀI KHOẢN SĐT CÀO */}
-          <button
-            onClick={() => setActiveTab("accounts")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === "accounts"
-                ? "border-blue-500 text-blue-400 bg-blue-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Phone className="w-4 h-4 text-emerald-400" />
-            <span>Tài Khoản SĐT Cào ({accounts.length})</span>
-          </button>
+            {/* TAB 4: SĐT CÀO */}
+            <button
+              onClick={() => setActiveTab("accounts")}
+              className={`py-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
+                activeTab === "accounts"
+                  ? "border-emerald-500 text-emerald-400 bg-emerald-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Phone className="w-4 h-4 text-emerald-400" />
+              <span>SĐT Cào ({accounts.length})</span>
+            </button>
 
-          {/* TAB 4: THÊM & CÀO NHÓM */}
-          <button
-            onClick={() => setActiveTab("groups")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === "groups"
-                ? "border-blue-500 text-blue-400 bg-blue-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Layers className="w-4 h-4 text-indigo-400" />
-            <span>Thêm & Cào Nhóm ({groups.length})</span>
-          </button>
+            {/* TAB 5: QUẢN LÝ NHÓM */}
+            <button
+              onClick={() => setActiveTab("groups")}
+              className={`py-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
+                activeTab === "groups"
+                  ? "border-indigo-500 text-indigo-400 bg-indigo-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Layers className="w-4 h-4 text-indigo-400" />
+              <span>Quản Lý Nhóm ({groups.length})</span>
+            </button>
 
-          {/* TAB 5: CHIẾN DỊCH TIẾP THỊ */}
-          <button
-            onClick={() => setActiveTab("campaigns")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
-              activeTab === "campaigns"
-                ? "border-blue-500 text-blue-400 bg-blue-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Send className="w-4 h-4 text-amber-400" />
-            <span>Chiến Dịch Tiếp Thị ({campaigns.length})</span>
-          </button>
+            {/* TAB 6: CHIẾN DỊCH TIẾP THỊ */}
+            <button
+              onClick={() => setActiveTab("campaigns")}
+              className={`py-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
+                activeTab === "campaigns"
+                  ? "border-amber-500 text-amber-400 bg-amber-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Send className="w-4 h-4 text-amber-400" />
+              <span>Chiến Dịch ({campaigns.length})</span>
+            </button>
+          </div>
 
-          {/* TAB 6: CÀI ĐẶT */}
+          {/* TAB 7: CÀI ĐẶT WEBHOOK */}
           <button
             onClick={() => setActiveTab("settings")}
-            className={`py-3 px-3.5 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-2 whitespace-nowrap transition cursor-pointer ${
+            className={`py-2 px-3 text-xs sm:text-sm font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer rounded-t-lg ${
               activeTab === "settings"
-                ? "border-blue-500 text-blue-400 bg-blue-500/5"
-                : "border-transparent text-slate-400 hover:text-slate-200"
+                ? "border-purple-500 text-purple-300 bg-purple-500/15 font-semibold"
+                : "border-transparent text-slate-400 hover:text-purple-300 hover:bg-slate-800/50"
             }`}
+            title="Cài Đặt Webhook n8n & Hệ Thống"
           >
-            <Settings className="w-4 h-4 text-slate-400" />
-            <span>Cài Đặt Webhook</span>
+            <Settings className={`w-4 h-4 ${activeTab === "settings" ? "text-purple-400 rotate-45" : "text-slate-400"} transition-transform duration-300`} />
+            <span className="font-semibold">Cài Đặt Webhook</span>
           </button>
         </div>
       </header>
@@ -4120,10 +4135,16 @@ export default function Home() {
                             {(campaignForm.image_urls || []).map((url, idx) => (
                               <div key={idx} className="relative group rounded-lg overflow-hidden border border-slate-750 bg-slate-900 aspect-square">
                                 <img
-                                  src={url}
+                                  src={imagePreviewMap[url] || url}
                                   alt={`img-${idx}`}
                                   className="w-full h-full object-cover"
-                                  onError={(e: any) => { e.target.src = "https://placehold.co/100x100?text=Ảnh+lỗi"; }}
+                                  onError={(e: any) => {
+                                    if (e.target.src !== url && url.startsWith("http")) {
+                                      e.target.src = url;
+                                    } else {
+                                      e.target.src = "https://placehold.co/100x100?text=Ảnh+" + (idx + 1);
+                                    }
+                                  }}
                                 />
                                 <span className="absolute bottom-0.5 left-0.5 bg-black/80 text-[9px] font-mono px-1 rounded text-white">
                                   #{idx + 1}
@@ -4603,10 +4624,16 @@ export default function Home() {
                                 {(campaignForm.image_urls || []).map((imgUrl, i) => (
                                   <div key={i} className="aspect-square relative overflow-hidden bg-slate-950">
                                     <img
-                                      src={imgUrl}
+                                      src={imagePreviewMap[imgUrl] || imgUrl}
                                       alt={`preview-${i}`}
                                       className="w-full h-full object-cover"
-                                      onError={(e: any) => { e.target.style.display = 'none'; }}
+                                      onError={(e: any) => {
+                                        if (e.target.src !== imgUrl && imgUrl.startsWith("http")) {
+                                          e.target.src = imgUrl;
+                                        } else {
+                                          e.target.style.display = 'none';
+                                        }
+                                      }}
                                     />
                                   </div>
                                 ))}
@@ -4615,7 +4642,11 @@ export default function Home() {
                           ) : (
                             <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
                               <img
-                                src={(campaignForm.image_urls && campaignForm.image_urls[0]) || uploadedMediaInfo?.previewUrl || campaignForm.image_url}
+                                src={
+                                  (campaignForm.image_urls && campaignForm.image_urls[0] && (imagePreviewMap[campaignForm.image_urls[0]] || campaignForm.image_urls[0])) ||
+                                  uploadedMediaInfo?.previewUrl ||
+                                  campaignForm.image_url
+                                }
                                 alt="Preview"
                                 className="w-full h-36 object-cover"
                                 onError={(e: any) => { e.target.style.display = 'none'; }}
