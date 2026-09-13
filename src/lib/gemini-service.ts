@@ -12,28 +12,22 @@ export interface GeminiModelOption {
 
 export const GEMINI_FLASH_MODELS: GeminiModelOption[] = [
   {
-    id: "gemini-3.5-flash",
-    name: "Gemini 3.5 Flash",
-    description: "Tối ưu tốc độ, văn phong tự nhiên, phản hồi siêu nhanh",
+    id: "gemini-2.0-flash",
+    name: "Gemini 2.0 Flash",
+    description: "Mới nhất, phản hồi siêu tốc, phân tích ngôn ngữ tự nhiên đỉnh cao",
     tag: "Khuyên dùng",
   },
   {
-    id: "gemini-3.6-flash",
-    name: "Gemini 3.6 Flash",
-    description: "Sáng tạo nội dung, giàu cảm xúc, ngắt dòng chuẩn Zalo",
-    tag: "Sáng tạo",
+    id: "gemini-1.5-flash",
+    name: "Gemini 1.5 Flash",
+    description: "Cực kỳ ổn định, tốc độ nhanh, bảo toàn chi tiết thông tin tối đa",
+    tag: "Ổn định",
   },
   {
-    id: "gemini-3.7-flash",
-    name: "Gemini 3.7 Flash",
-    description: "Lý luận sắc bén, bán hàng & chốt sale đỉnh cao",
-    tag: "Mới nhất",
-  },
-  {
-    id: "gemini-3.8-flash",
-    name: "Gemini 3.8 Flash",
-    description: "Mô hình mở rộng đa nhiệm, cá nhân hóa sâu sắc",
-    tag: "Nâng cao",
+    id: "gemini-1.5-pro",
+    name: "Gemini 1.5 Pro",
+    description: "Chuyên sâu, lý luận sắc bén, văn phong chất lượng cao cho bài viết dài",
+    tag: "Chuyên sâu",
   },
 ];
 
@@ -76,43 +70,44 @@ export async function rewriteZaloMessage({
     };
   }
 
-  const systemPrompt = `Bạn là chuyên gia copywriter hàng đầu về tin nhắn Zalo Marketing tại Việt Nam.
-Nhiệm vụ của bạn là viết lại nội dung tin nhắn tiếp thị sau đây theo phong cách: "${stylePrompt}".
+  const systemPrompt = `BẠN LÀ MỘT BIÊN TẬP VIÊN VĂN BẢN (COPY EDITOR) CHUYÊN NGHIỆP CHO TIN NHẮN ZALO MARKETING TẠI VIỆT NAM.
+Nhiệm vụ của bạn là VIẾT LẠI nội dung tin nhắn được cung cấp theo phong cách: "${stylePrompt}".
 
-CÁC NGUYÊN TẮC CỐT LÕI BẮT BUỘC TUÂN THỦ:
-1. BẢO TOÀN 100% ĐẦY ĐỦ MỌI THÔNG TIN (QUAN TRỌNG NHẤT):
-   - Bạn PHẢI GIỮ LẠI ĐẦY ĐỦ TOÀN BỘ tất cả các thông tin, chi tiết, dữ liệu có trong tin nhắn gốc: tên sản phẩm/dịch vụ, tính năng, quyền lợi, ưu đãi, quà tặng, thể lệ, các đường link, số điện thoại/hotline, thời hạn, địa chỉ, hướng dẫn hành động...
-   - TUYỆT ĐỐI KHÔNG ĐƯỢC tóm tắt làm mất ý, KHÔNG lược bỏ, KHÔNG cắt xén bất kỳ thông tin nào của người dùng.
-   - Nhiệm vụ của bạn là SẮP XẾP LẠI và BIÊN TẬP CÂU CHỮ theo phong cách được chọn, giúp thông tin vừa đầy đủ trọn vẹn, vừa mạch lạc, cuốn hút và dễ đọc.
+⚠️ CÁC NGUYÊN TẮC CỐT LÕI BẮT BUỘC TUÂN THỦ (QUAN TRỌNG NHẤT):
+1. BẢO TOÀN NGUYÊN VẸN 100% TẤT CẢ MỌI THÔNG TIN VÀ CHI TIẾT (NGHIÊM CẤM TÓM TẮT):
+   - Bạn là người TRAU CHUỐT CÂU TỪ và TẠO CẢM XÚC, KHÔNG PHẢI người tóm tắt.
+   - BẮT BUỘC GIỮ LẠI ĐẦY ĐỦ 100% tất cả các câu, các đoạn, các chi tiết trong tin nhắn gốc:
+     + Tên cuốn sách, khóa học, dịch vụ, sản phẩm, tên thầy cô/tác giả (ví dụ: "Bí kíp luyện thi vào lớp 10 môn Toán", tác giả Thầy Phạm Đình Quang...).
+     + Toàn bộ tính năng, lợi ích, nội dung chi tiết, mục lục, bảng giá, chương trình ưu đãi, quà tặng kèm, thể lệ, thời hạn áp dụng.
+     + Toàn bộ các đường link URL, số điện thoại hotline, địa chỉ, hướng dẫn đăng ký/hành động.
+   - TUYỆT ĐỐI KHÔNG ĐƯỢC lược bỏ, KHÔNG cắt xén, KHÔNG rút gọn dù chỉ là 1 chi tiết nhỏ.
+   - Độ dài của tin nhắn viết lại BẮT BUỘC PHẢI TƯƠNG ĐƯƠNG HOẶC DÀI HƠN bản gốc. Bản gốc có bao nhiêu đoạn, bản viết lại phải có đầy đủ bấy nhiêu đoạn tương ứng.
 
-2. BẢO TỒN BIẾN {name}:
-   - Giữ nguyên thẻ "{name}" ở vị trí xưng hô tự nhiên nhất (ví dụ: "Chào {name}", "{name} ơi", "Gửi {name} nhé"...) để hệ thống tự động điền tên người nhận trên Zalo.
+2. BẢO TỒN NGUYÊN VẸN THẺ BIẾN {name}:
+   - Giữ nguyên chính xác thẻ "{name}" (bao gồm cả dấu ngoặc nhọn) ở phần xưng hô chào hỏi đầu tin nhắn (ví dụ: "Chào {name} nhé!", "{name} ơi...", "Gửi {name} thân mến!").
 
-3. VĂN PHONG CHAT ZALO CHUYÊN NGHIỆP:
-   - Diễn đạt trôi chảy, tự nhiên, văn minh, kích thích người đọc phản hồi.
-   - Sử dụng các biểu tượng cảm xúc (emoji) phù hợp một cách tinh tế để làm nổi bật các ý chính và thông tin quan trọng.
+3. VĂN PHONG VÀ TRÌNH BÀY CHUẨN ZALO CHUYÊN NGHIỆP:
+   - Sử dụng các biểu tượng cảm xúc (emoji) sinh động, hợp lý để làm nổi bật các ý chính.
+   - Ngắt dòng thông thoáng, dễ đọc trên màn hình điện thoại di động.
 
-4. BỐ CỤC TRÌNH BÀY THOÁNG MẮT TRÊN ĐIỆN THOẠI:
-   - Sử dụng ngắt dòng và gạch đầu dòng hợp lý để người đọc trên màn hình di động nắm bắt toàn bộ thông tin một cách rõ ràng, không bị rối mắt.
-
-5. ĐỊNH DẠNG ĐẦU RA:
-   - CHỈ TRẢ VỀ DUY NHẤT nội dung tin nhắn đã được viết lại.
-   - TUYỆT ĐỐI KHÔNG kèm lời dẫn nhập thừa (như "Dưới đây là tin nhắn...", "Chào bạn..."), KHÔNG kèm giải thích, KHÔNG bọc trong dấu ngoặc kép hay khối code markdown (\`\`\`).`;
+4. ĐỊNH DẠNG ĐẦU RA:
+   - CHỈ TRẢ VỀ DUY NHẤT nội dung tin nhắn hoàn chỉnh đã được viết lại.
+   - TUYỆT ĐỐI KHÔNG kèm lời dẫn nhập của AI (như "Dưới đây là...", "Chào bạn..."), KHÔNG kèm giải thích, KHÔNG bọc trong dấu ngoặc kép hay khối code markdown (\`\`\`).`;
 
   const requestPayload = {
     contents: [
       {
         parts: [
           {
-            text: `${systemPrompt}\n\nNỘI DUNG TIN NHẮN GỐC CẦN VIẾT LẠI:\n"""\n${originalText.trim()}\n"""`,
+            text: `${systemPrompt}\n\nNỘI DUNG TIN NHẮN GỐC CẦN VIẾT LẠI (HÃY GIỮ ĐẦY ĐỦ 100% THÔNG TIN CHI TIẾT, KHÔNG ĐƯỢC TÓM TẮT):\n"""\n${originalText.trim()}\n"""`,
           },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0.75,
+      temperature: 0.35, // Nhiệt độ thấp để bám sát và bảo toàn 100% nội dung gốc
       topP: 0.95,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 8192, // Tăng lên 8192 tokens để không bao giờ bị cắt cụt câu hay thiếu chữ
     },
   };
 
@@ -186,7 +181,8 @@ CÁC NGUYÊN TẮC CỐT LÕI BẮT BUỘC TUÂN THỦ:
       };
     }
 
-    const generatedText = primaryResult.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const candidate = primaryResult.data?.candidates?.[0];
+    const generatedText = candidate?.content?.parts?.[0]?.text?.trim();
     if (!generatedText) {
       return {
         success: false,
@@ -194,9 +190,49 @@ CÁC NGUYÊN TẮC CỐT LÕI BẮT BUỘC TUÂN THỦ:
       };
     }
 
+    let finalCleanText = cleanGeneratedText(generatedText);
+
+    // Failsafe: Nếu AI tóm tắt quá đà làm mất hơn 40% dung lượng bản gốc, tự động re-prompt với chỉ thị bắt buộc bảo toàn 100%
+    if (finalCleanText.length < originalText.trim().length * 0.6 && originalText.trim().length > 80) {
+      try {
+        const retryPayload = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${systemPrompt}\n\n⚠️ CẢNH BÁO QUAN TRỌNG: Bạn vừa cắt bớt quá nhiều thông tin. Yêu cầu viết lại bản gốc dưới đây giữ NGUYÊN VẸN 100% TẤT CẢ Ý TỨ, CHI TIẾT, ĐOẠN VĂN, KHÔNG ĐƯỢC TÓM TẮT DÙ CHỈ 1 CÂU:\n"""\n${originalText.trim()}\n"""`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            topP: 0.95,
+            maxOutputTokens: 8192,
+          },
+        };
+
+        const retryRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(retryPayload),
+          }
+        );
+        const retryData = await retryRes.json();
+        const retryText = retryData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (retryText && retryText.length > finalCleanText.length) {
+          finalCleanText = cleanGeneratedText(retryText);
+        }
+      } catch (retryErr) {
+        console.warn("[Gemini AI] Retry error:", retryErr);
+      }
+    }
+
     return {
       success: true,
-      text: cleanGeneratedText(generatedText),
+      text: finalCleanText,
       modelUsed: model,
     };
   } catch (netErr: any) {

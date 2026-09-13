@@ -457,8 +457,30 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     : (campaign.image_url ? [campaign.image_url] : []);
 
   const ctaLinks: any[] = Array.isArray(campaign.cta_links) && campaign.cta_links.length > 0
-    ? campaign.cta_links
+    ? campaign.cta_links.filter((l: any) => l && (l.url || l.label))
     : (campaign.cta_link ? [{ label: "Xem chi tiết", url: campaign.cta_link }] : []);
+
+  // Đảm bảo tất cả các nút hành động (CTA) được format đầy đủ kèm nhãn & URL vào tin nhắn gửi đi
+  let finalMessageText = (campaign.message_template || "").trim();
+  if (ctaLinks.length > 0) {
+    const formattedCtaLines = ctaLinks
+      .map((l: any) => {
+        const label = (l.label || "Xem chi tiết").trim();
+        const url = (l.url || "").trim();
+        return url ? `${label}: ${url}` : label;
+      })
+      .filter(Boolean);
+
+    // Chỉ đính kèm ở cuối nếu tin nhắn chưa có link đó
+    const missingCta = formattedCtaLines.filter((line: string) => {
+      const urlPart = line.includes("http") ? line.substring(line.indexOf("http")) : "";
+      return !urlPart || !finalMessageText.includes(urlPart);
+    });
+
+    if (missingCta.length > 0) {
+      finalMessageText += "\n\n" + missingCta.join("\n");
+    }
+  }
 
   const mediaUrl = campaign.media_url || campaign.document_url || campaign.image_url || campaign.video_url || (imageUrls[0] || "");
   const isVideo = campaign.media_type === "video" || Boolean(campaign.video_url);
@@ -472,7 +494,7 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     campaignName: campaign.name,
     senderAccountPhone: campaign.account_phone || "",
     message: {
-      text: campaign.message_template,
+      text: finalMessageText,
       mediaType: mediaType,
       mediaUrl: mediaUrl,
       fileName: campaign.file_name || "",
@@ -481,7 +503,7 @@ export async function clientTriggerSendCampaign(campaignId: string) {
       images: imageUrls,
       videoUrl: isVideo ? mediaUrl : (campaign.video_url || ""),
       documentUrl: isDoc ? mediaUrl : "",
-      ctaLink: ctaLinks[0]?.url || campaign.cta_link || "",
+      ctaLink: "", // Để trống để n8n cũ không tự cộng thêm dòng "👉 Xem thêm tại: ..." gây trùng lặp
       ctaLinks: ctaLinks,
       actions: ctaLinks,
     },

@@ -166,7 +166,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : (body.message?.documentUrl ? 'document' : 'none')));\nconst mediaUrl = body.message?.mediaUrl || body.message?.documentUrl || body.message?.imageUrl || body.message?.videoUrl || '';\nconst imageUrl = body.message?.imageUrl || (mediaType === 'image' ? mediaUrl : '');\nconst videoUrl = body.message?.videoUrl || (mediaType === 'video' ? mediaUrl : '');\nconst documentUrl = body.message?.documentUrl || (mediaType === 'document' ? mediaUrl : '');\nconst fileName = body.message?.fileName || '';\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaLink) {\n    personalized += '\\n\\n👉 Xem thêm tại: ' + ctaLink;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      mediaUrl: mediaUrl,\n      imageUrl: imageUrl,\n      videoUrl: videoUrl,\n      documentUrl: documentUrl,\n      fileName: fileName\n    }\n  };\n});"
+        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : (body.message?.documentUrl ? 'document' : 'none')));\nconst mediaUrl = body.message?.mediaUrl || body.message?.documentUrl || body.message?.imageUrl || body.message?.videoUrl || '';\nconst imageUrl = body.message?.imageUrl || (mediaType === 'image' ? mediaUrl : '');\nconst rawImageUrls = Array.isArray(body.message?.imageUrls) && body.message.imageUrls.length > 0 \n  ? body.message.imageUrls \n  : (imageUrl ? [imageUrl] : []);\nconst videoUrl = body.message?.videoUrl || (mediaType === 'video' ? mediaUrl : '');\nconst documentUrl = body.message?.documentUrl || (mediaType === 'document' ? mediaUrl : '');\nconst fileName = body.message?.fileName || '';\nconst ctaLinks = Array.isArray(body.message?.ctaLinks) ? body.message.ctaLinks : (body.message?.actions || []);\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nlet ctaSection = '';\nif (ctaLinks.length > 0) {\n  ctaSection = ctaLinks\n    .filter(l => l && (l.url || l.label))\n    .map(l => (l.url ? (l.label ? l.label + ': ' + l.url : l.url) : l.label))\n    .join('\\n');\n} else if (ctaLink) {\n  ctaSection = '👉 Xem thêm tại: ' + ctaLink;\n}\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaSection && !personalized.includes(ctaLinks[0]?.url || ctaLink)) {\n    personalized += '\\n\\n' + ctaSection;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      mediaUrl: mediaUrl,\n      imageUrl: rawImageUrls[0] || imageUrl,\n      imageUrls: rawImageUrls,\n      videoUrl: videoUrl,\n      documentUrl: documentUrl,\n      fileName: fileName\n    }\n  };\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -815,6 +815,192 @@
       ],
       "id": "router-send-friend-02",
       "name": "Phân Luồng Gửi Tin Hoặc Kết Bạn"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-img-2",
+              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[1] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1650,
+        150
+      ],
+      "id": "node-if-has-img2",
+      "name": "Kiểm Tra Còn Ảnh Thứ 2?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls[1] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        80
+      ],
+      "id": "node-download-img2",
+      "name": "Tải Ảnh Thứ 2"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "message": "",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "binary",
+        "attachmentMode": "image",
+        "binaryPropertyName": "data",
+        "fileName": "",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        80
+      ],
+      "id": "node-send-img2",
+      "name": "Gửi Ảnh Thứ 2",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-img-3",
+              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[2] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2320,
+        80
+      ],
+      "id": "node-if-has-img3",
+      "name": "Kiểm Tra Còn Ảnh Thứ 3?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls[2] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2540,
+        20
+      ],
+      "id": "node-download-img3",
+      "name": "Tải Ảnh Thứ 3"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "useSession": true,
+        "connectToId": "717682179432150574",
+        "noticeUserId": "",
+        "noticeUserIdSupport": "",
+        "threadType": 0,
+        "threadId": "={{ $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
+        "message": "",
+        "messageFormat": "plain",
+        "urgency": 0,
+        "sendTypingEvent": true,
+        "attachmentType": "binary",
+        "attachmentMode": "image",
+        "binaryPropertyName": "data",
+        "fileName": "",
+        "mentions": {},
+        "reaction": {},
+        "quote": {},
+        "styles": {},
+        "ttl": 0
+      },
+      "type": "n8n-nodes-ultimate.zalo",
+      "typeVersion": 1,
+      "position": [
+        2760,
+        20
+      ],
+      "id": "node-send-img3",
+      "name": "Gửi Ảnh Thứ 3",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -1094,7 +1280,7 @@
       "main": [
         [
           {
-            "node": "Giãn Cách Chống Spam",
+            "node": "Kiểm Tra Còn Ảnh Thứ 2?",
             "type": "main",
             "index": 0
           }
@@ -1198,6 +1384,86 @@
         [
           {
             "node": "Chuẩn Bị Danh Sách Người Nhận",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm Tra Còn Ảnh Thứ 2?": {
+      "main": [
+        [
+          {
+            "node": "Tải Ảnh Thứ 2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tải Ảnh Thứ 2": {
+      "main": [
+        [
+          {
+            "node": "Gửi Ảnh Thứ 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi Ảnh Thứ 2": {
+      "main": [
+        [
+          {
+            "node": "Kiểm Tra Còn Ảnh Thứ 3?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kiểm Tra Còn Ảnh Thứ 3?": {
+      "main": [
+        [
+          {
+            "node": "Tải Ảnh Thứ 3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tải Ảnh Thứ 3": {
+      "main": [
+        [
+          {
+            "node": "Gửi Ảnh Thứ 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gửi Ảnh Thứ 3": {
+      "main": [
+        [
+          {
+            "node": "Giãn Cách Chống Spam",
             "type": "main",
             "index": 0
           }

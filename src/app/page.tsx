@@ -230,7 +230,7 @@ export default function Home() {
 
   // Gemini AI Message Rewriter States
   const [geminiApiKey, setGeminiApiKey] = useState<string>("");
-  const [geminiModel, setGeminiModel] = useState<string>("gemini-3.5-flash");
+  const [geminiModel, setGeminiModel] = useState<string>("gemini-2.0-flash");
   const [isAiRewriting, setIsAiRewriting] = useState<boolean>(false);
   const [aiNotice, setAiNotice] = useState<{ text: string; isError?: boolean } | null>(null);
   const [aiRewriteHistory, setAiRewriteHistory] = useState<string[]>([]);
@@ -4504,16 +4504,26 @@ export default function Home() {
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Kêu gọi hành động hấp dẫn (Bắt buộc giữ đầy đủ 100% mọi thông tin, chi tiết và link gốc, kích thích tương tác & chuyển đổi sales)")}
-                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-indigo-900/50 border border-slate-700/70 hover:border-indigo-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                          onClick={() => handleAiRewrite("Bảo toàn nguyên vẹn 100% mọi câu chữ, chi tiết, thông tin gốc, tuyệt đối KHÔNG TÓM TẮT. Chỉ trau chuốt câu cú mượt mà và thêm icon emoji sinh động chuẩn Zalo")}
+                          className="px-2.5 py-1 text-[11px] bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/50 hover:border-indigo-400 text-indigo-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm font-medium"
+                          title="Giữ nguyên 100% nội dung, không cắt bớt chi tiết nào, bổ sung emoji cuốn hút"
                         >
-                          <Wand2 className="w-3 h-3 text-indigo-400" />
-                          <span>🎯 Viết lại hấp dẫn</span>
+                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>🛡️ Giữ 100% nội dung + Emoji</span>
                         </button>
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Tự nhiên, thân thiện như bạn bè tâm tình (Bắt buộc giữ đầy đủ 100% tất cả thông tin, diễn đạt gần gũi, không lộ mùi quảng cáo thô cứng)")}
+                          onClick={() => handleAiRewrite("Bán hàng và chốt sale hấp dẫn, tạo tính cấp bách (BẮT BUỘC giữ đầy đủ 100% mọi thông tin sản phẩm/sách/khóa học, giá, ưu đãi và quyền lợi, tuyệt đối không được cắt bớt)")}
+                          className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-indigo-900/50 border border-slate-700/70 hover:border-indigo-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                        >
+                          <Wand2 className="w-3 h-3 text-indigo-400" />
+                          <span>🎯 Chốt Sale hấp dẫn</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAiRewriting}
+                          onClick={() => handleAiRewrite("Tự nhiên, thân thiện như bạn bè tâm tình (BẮT BUỘC giữ đầy đủ 100% tất cả thông tin, diễn đạt gần gũi, xưng hô ấm áp, không tóm tắt)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-emerald-900/50 border border-slate-700/70 hover:border-emerald-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
                           <span>💬 Thân thiện & Tự nhiên</span>
@@ -4521,7 +4531,7 @@ export default function Home() {
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Mạch lạc, chuyên nghiệp, rõ ràng (Bắt buộc giữ đầy đủ 100% nội dung gốc, ngắt ý thông thoáng, làm nổi bật các ý chính trên Zalo)")}
+                          onClick={() => handleAiRewrite("Mạch lạc, chuyên nghiệp, rõ ràng (BẮT BUỘC giữ đầy đủ 100% nội dung gốc, ngắt ý thông thoáng, làm nổi bật các ý chính trên Zalo)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-amber-900/50 border border-slate-700/70 hover:border-amber-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
                           <span>⚡ Mạch lạc & Chuyên nghiệp</span>
@@ -4529,10 +4539,10 @@ export default function Home() {
                         <button
                           type="button"
                           disabled={isAiRewriting}
-                          onClick={() => handleAiRewrite("Tặng quà, chia sẻ giá trị (Bắt buộc giữ đầy đủ 100% nội dung quà tặng/ưu đãi, tạo thiện cảm và thu hút người nhận)")}
+                          onClick={() => handleAiRewrite("Tặng quà, chia sẻ giá trị (BẮT BUỘC giữ đầy đủ 100% nội dung quà tặng, ưu đãi và thể lệ, tạo thiện cảm và thu hút người nhận)")}
                           className="px-2 py-1 text-[11px] bg-slate-900/90 hover:bg-pink-900/50 border border-slate-700/70 hover:border-pink-500/70 text-slate-200 hover:text-white rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                         >
-                          <span>🎁 Tặng quà / Chia sẻ</span>
+                          <span>🎁 Tặng quà / Ưu đãi</span>
                         </button>
                         <button
                           type="button"
