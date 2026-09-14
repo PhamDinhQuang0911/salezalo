@@ -166,7 +166,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : (body.message?.documentUrl ? 'document' : 'none')));\nconst mediaUrl = body.message?.mediaUrl || body.message?.documentUrl || body.message?.imageUrl || body.message?.videoUrl || '';\nconst imageUrl = body.message?.imageUrl || (mediaType === 'image' ? mediaUrl : '');\nconst rawImageUrls = Array.isArray(body.message?.imageUrls) && body.message.imageUrls.length > 0 \n  ? body.message.imageUrls \n  : (Array.isArray(body.message?.images) && body.message.images.length > 0 ? body.message.images : (imageUrl ? [imageUrl] : []));\nconst videoUrl = body.message?.videoUrl || (mediaType === 'video' ? mediaUrl : '');\nconst documentUrl = body.message?.documentUrl || (mediaType === 'document' ? mediaUrl : '');\nconst fileName = body.message?.fileName || '';\nconst ctaLinks = Array.isArray(body.message?.ctaLinks) ? body.message.ctaLinks : (body.message?.actions || []);\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nlet ctaSection = '';\nif (ctaLinks.length > 0) {\n  ctaSection = ctaLinks\n    .filter(l => l && (l.url || l.label))\n    .map(l => (l.url ? (l.label ? l.label + ': ' + l.url : l.url) : l.label))\n    .join('\\n');\n} else if (ctaLink) {\n  ctaSection = '👉 Xem thêm tại: ' + ctaLink;\n}\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaSection && !personalized.includes(ctaLinks[0]?.url || ctaLink)) {\n    personalized += '\\n\\n' + ctaSection;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      mediaUrl: mediaUrl,\n      imageUrl: rawImageUrls[0] || imageUrl,\n      imageUrls: rawImageUrls,\n      videoUrl: videoUrl,\n      documentUrl: documentUrl,\n      fileName: fileName\n    }\n  };\n});"
+        "jsCode": "const body = $input.first().json.body || {};\nconst template = body.message?.text || '';\nconst mediaType = body.message?.mediaType || (body.message?.videoUrl ? 'video' : (body.message?.imageUrl ? 'image' : (body.message?.documentUrl ? 'document' : 'none')));\nconst mediaUrl = body.message?.mediaUrl || body.message?.documentUrl || body.message?.imageUrl || body.message?.videoUrl || '';\nconst rawImageUrls = Array.isArray(body.message?.imageUrls) && body.message.imageUrls.length > 0 \n  ? body.message.imageUrls \n  : (Array.isArray(body.message?.images) && body.message.images.length > 0 ? body.message.images : (body.message?.imageUrl ? [body.message.imageUrl] : []));\n\n// Xác định Ảnh Chính (sẽ được gửi kèm Chú Thích Tin Nhắn - Caption)\nconst primaryImageUrl = body.message?.primaryImageUrl || body.message?.imageUrl || rawImageUrls[0] || '';\nconst primaryIndex = rawImageUrls.indexOf(primaryImageUrl) >= 0 ? rawImageUrls.indexOf(primaryImageUrl) : 0;\n\n// Các ảnh phụ (sẽ gửi trước không kèm chú thích)\nconst auxiliaryImageUrls = Array.isArray(body.message?.auxiliaryImageUrls) && body.message.auxiliaryImageUrls.length > 0\n  ? body.message.auxiliaryImageUrls\n  : rawImageUrls.filter((_, idx) => idx !== primaryIndex);\n\nconst videoUrl = body.message?.videoUrl || (mediaType === 'video' ? mediaUrl : '');\nconst documentUrl = body.message?.documentUrl || (mediaType === 'document' ? mediaUrl : '');\nconst fileName = body.message?.fileName || '';\nconst ctaLinks = Array.isArray(body.message?.ctaLinks) ? body.message.ctaLinks : (body.message?.actions || []);\nconst ctaLink = body.message?.ctaLink || '';\nconst autoFriendFirst = Boolean(body.settings?.autoFriendFirst);\nconst delaySeconds = Number(body.settings?.delaySeconds || 15);\nconst recipients = body.recipients || [];\n\nlet ctaSection = '';\nif (ctaLinks.length > 0) {\n  ctaSection = ctaLinks\n    .filter(l => l && (l.url || l.label))\n    .map(l => (l.url ? (l.label ? l.label + ': ' + l.url : l.url) : l.label))\n    .join('\\n');\n} else if (ctaLink) {\n  ctaSection = '👉 Xem thêm tại: ' + ctaLink;\n}\n\nreturn recipients.map((r, idx) => {\n  let personalized = template.replace(/\\{name\\}/g, r.name || 'bạn');\n  if (ctaSection && !personalized.includes(ctaLinks[0]?.url || ctaLink)) {\n    personalized += '\\n\\n' + ctaSection;\n  }\n  return {\n    json: {\n      index: idx + 1,\n      total: recipients.length,\n      campaignId: body.campaignId,\n      campaignName: body.campaignName || '',\n      zaloId: String(r.zaloId),\n      name: r.name || 'Thành viên',\n      isFriend: Boolean(r.isFriend),\n      autoFriendFirst: autoFriendFirst,\n      delaySeconds: delaySeconds,\n      personalizedMessage: personalized,\n      mediaType: mediaType,\n      mediaUrl: mediaUrl,\n      imageUrl: primaryImageUrl,\n      primaryImageUrl: primaryImageUrl,\n      imageUrls: rawImageUrls,\n      auxiliaryImageUrls: auxiliaryImageUrls,\n      videoUrl: videoUrl,\n      documentUrl: documentUrl,\n      fileName: fileName\n    }\n  };\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -278,7 +278,7 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        4900,
+        4500,
         200
       ],
       "id": "node-wait-antispam",
@@ -569,67 +569,6 @@
     },
     {
       "parameters": {
-        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[0] || $('Vòng Lặp Từng Thành Viên').item.json.imageUrl || $('Vòng Lặp Từng Thành Viên').item.json.documentUrl || $('Vòng Lặp Từng Thành Viên').item.json.mediaUrl }}",
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file",
-              "outputPropertyName": "data"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1180,
-        150
-      ],
-      "id": "node-http-download-file",
-      "name": "Tải Tệp / Ảnh Đính Kèm",
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "useSession": true,
-        "connectToId": "717682179432150574",
-        "noticeUserId": "",
-        "noticeUserIdSupport": "",
-        "threadType": 0,
-        "threadId": "={{ $('Vòng Lặp Từng Thành Viên').item.json.zaloId || '' }}",
-        "message": "",
-        "messageFormat": "plain",
-        "urgency": 0,
-        "sendTypingEvent": true,
-        "attachmentType": "binary",
-        "attachmentMode": "auto",
-        "binaryPropertyName": "data",
-        "fileName": "={{ $('Vòng Lặp Từng Thành Viên').item.json.fileName || '' }}",
-        "mentions": {},
-        "reaction": {},
-        "quote": {},
-        "styles": {},
-        "ttl": 0
-      },
-      "type": "n8n-nodes-ultimate.zalo",
-      "typeVersion": 1,
-      "position": [
-        1400,
-        150
-      ],
-      "id": "node-zalo-send-file-or-image",
-      "name": "Gửi Tin Nhắn Kèm Tệp & Ảnh",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
         "resource": "message",
         "operation": "sendMessage",
         "useSession": true,
@@ -827,8 +766,8 @@
           },
           "conditions": [
             {
-              "id": "c-has-img-2",
-              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[1] || '' }}",
+              "id": "c-has-aux-1",
+              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls?.[0] || '' }}",
               "rightValue": "",
               "operator": {
                 "type": "string",
@@ -843,15 +782,15 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1650,
+        1180,
         150
       ],
-      "id": "node-if-has-img2",
-      "name": "Kiểm Tra Còn Ảnh Thứ 2?"
+      "id": "node-if-has-aux-images",
+      "name": "Kiểm Tra Có Ảnh Phụ Gửi Trước?"
     },
     {
       "parameters": {
-        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls[1] }}",
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls[0] }}",
         "options": {
           "response": {
             "response": {
@@ -864,11 +803,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1880,
+        1420,
         60
       ],
-      "id": "node-download-img2",
-      "name": "Tải Ảnh Thứ 2",
+      "id": "node-download-aux1",
+      "name": "Tải Ảnh Phụ 1",
       "onError": "continueRegularOutput"
     },
     {
@@ -897,72 +836,72 @@
       },
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
+      "position": [
+        1640,
+        60
+      ],
+      "id": "node-send-aux1",
+      "name": "Gửi Ảnh Phụ 1",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-aux-2",
+              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls?.[1] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1870,
+        60
+      ],
+      "id": "node-if-has-aux2",
+      "name": "Kiểm Tra Có Ảnh Phụ 2?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls[1] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         2100,
-        60
-      ],
-      "id": "node-send-img2",
-      "name": "Gửi Ảnh Thứ 2",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c-has-img-3",
-              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[2] || '' }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        2330,
-        60
-      ],
-      "id": "node-if-has-img3",
-      "name": "Kiểm Tra Còn Ảnh Thứ 3?"
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls[2] }}",
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file",
-              "outputPropertyName": "data"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2560,
         0
       ],
-      "id": "node-download-img3",
-      "name": "Tải Ảnh Thứ 3",
+      "id": "node-download-aux2",
+      "name": "Tải Ảnh Phụ 2",
       "onError": "continueRegularOutput"
     },
     {
@@ -991,72 +930,72 @@
       },
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
+      "position": [
+        2320,
+        0
+      ],
+      "id": "node-send-aux2",
+      "name": "Gửi Ảnh Phụ 2",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-aux-3",
+              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls?.[2] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2550,
+        0
+      ],
+      "id": "node-if-has-aux3",
+      "name": "Kiểm Tra Có Ảnh Phụ 3?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls[2] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         2780,
-        0
-      ],
-      "id": "node-send-img3",
-      "name": "Gửi Ảnh Thứ 3",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c-has-img-4",
-              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[3] || '' }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        3010,
-        0
-      ],
-      "id": "node-if-has-img4",
-      "name": "Kiểm Tra Còn Ảnh Thứ 4?"
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls[3] }}",
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file",
-              "outputPropertyName": "data"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        3240,
         -60
       ],
-      "id": "node-download-img4",
-      "name": "Tải Ảnh Thứ 4",
+      "id": "node-download-aux3",
+      "name": "Tải Ảnh Phụ 3",
       "onError": "continueRegularOutput"
     },
     {
@@ -1085,72 +1024,72 @@
       },
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
+      "position": [
+        3000,
+        -60
+      ],
+      "id": "node-send-aux3",
+      "name": "Gửi Ảnh Phụ 3",
+      "credentials": {
+        "zaloApi": {
+          "id": "kMMCpcPVoMsbnsy7",
+          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-has-aux-4",
+              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls?.[3] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3230,
+        -60
+      ],
+      "id": "node-if-has-aux4",
+      "name": "Kiểm Tra Có Ảnh Phụ 4?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.auxiliaryImageUrls[3] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         3460,
-        -60
-      ],
-      "id": "node-send-img4",
-      "name": "Gửi Ảnh Thứ 4",
-      "credentials": {
-        "zaloApi": {
-          "id": "kMMCpcPVoMsbnsy7",
-          "name": "055987xx _ Tg Toán Thầy.. _ 15:01 26/06"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c-has-img-5",
-              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls?.[4] || '' }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        3690,
-        -60
-      ],
-      "id": "node-if-has-img5",
-      "name": "Kiểm Tra Còn Ảnh Thứ 5?"
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.imageUrls[4] }}",
-        "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file",
-              "outputPropertyName": "data"
-            }
-          }
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        3920,
         -120
       ],
-      "id": "node-download-img5",
-      "name": "Tải Ảnh Thứ 5",
+      "id": "node-download-aux4",
+      "name": "Tải Ảnh Phụ 4",
       "onError": "continueRegularOutput"
     },
     {
@@ -1180,11 +1119,11 @@
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
       "position": [
-        4140,
+        3680,
         -120
       ],
-      "id": "node-send-img5",
-      "name": "Gửi Ảnh Thứ 5",
+      "id": "node-send-aux4",
+      "name": "Gửi Ảnh Phụ 4",
       "credentials": {
         "zaloApi": {
           "id": "kMMCpcPVoMsbnsy7",
@@ -1194,36 +1133,25 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c-has-text-msg",
-              "leftValue": "={{ $('Vòng Lặp Từng Thành Viên').item.json.personalizedMessage?.trim() || '' }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
+        "url": "={{ $('Vòng Lặp Từng Thành Viên').item.json.primaryImageUrl || $('Vòng Lặp Từng Thành Viên').item.json.imageUrl || $('Vòng Lặp Từng Thành Viên').item.json.documentUrl || $('Vòng Lặp Từng Thành Viên').item.json.mediaUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
             }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
+          }
+        }
       },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        4400,
+        3980,
         150
       ],
-      "id": "node-if-has-text-msg",
-      "name": "Kiểm Tra Có Tin Nhắn Kèm Theo?"
+      "id": "node-download-primary-img",
+      "name": "Tải Ảnh Chính Hoặc Tệp",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -1239,10 +1167,10 @@
         "messageFormat": "plain",
         "urgency": 0,
         "sendTypingEvent": true,
-        "attachmentType": "none",
+        "attachmentType": "binary",
         "attachmentMode": "auto",
         "binaryPropertyName": "data",
-        "fileName": "",
+        "fileName": "={{ $('Vòng Lặp Từng Thành Viên').item.json.fileName || '' }}",
         "mentions": {},
         "reaction": {},
         "quote": {},
@@ -1252,11 +1180,11 @@
       "type": "n8n-nodes-ultimate.zalo",
       "typeVersion": 1,
       "position": [
-        4640,
-        80
+        4220,
+        150
       ],
-      "id": "node-zalo-send-followup-msg",
-      "name": "Gửi Tin Nhắn Kèm Theo Ảnh",
+      "id": "node-send-primary-img-with-caption",
+      "name": "Gửi Ảnh Chính Kèm Chú Thích Tin Nhắn",
       "credentials": {
         "zaloApi": {
           "id": "kMMCpcPVoMsbnsy7",
@@ -1418,7 +1346,7 @@
       "main": [
         [
           {
-            "node": "Kiểm Tra Có Tin Nhắn Kèm Theo?",
+            "node": "Giãn Cách Chống Spam",
             "type": "main",
             "index": 0
           }
@@ -1513,7 +1441,7 @@
       "main": [
         [
           {
-            "node": "Tải Tệp / Ảnh Đính Kèm",
+            "node": "Kiểm Tra Có Ảnh Phụ Gửi Trước?",
             "type": "main",
             "index": 0
           }
@@ -1521,28 +1449,6 @@
         [
           {
             "node": "Gửi Tin Nhắn Văn Bản",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Tải Tệp / Ảnh Đính Kèm": {
-      "main": [
-        [
-          {
-            "node": "Gửi Tin Nhắn Kèm Tệp & Ảnh",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gửi Tin Nhắn Kèm Tệp & Ảnh": {
-      "main": [
-        [
-          {
-            "node": "Kiểm Tra Còn Ảnh Thứ 2?",
             "type": "main",
             "index": 0
           }
@@ -1652,185 +1558,178 @@
         ]
       ]
     },
-    "Kiểm Tra Còn Ảnh Thứ 2?": {
+    "Kiểm Tra Có Ảnh Phụ Gửi Trước?": {
       "main": [
         [
           {
-            "node": "Tải Ảnh Thứ 2",
+            "node": "Tải Ảnh Phụ 1",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Kiểm Tra Có Tin Nhắn Kèm Theo?",
+            "node": "Tải Ảnh Chính Hoặc Tệp",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Tải Ảnh Thứ 2": {
+    "Tải Ảnh Phụ 1": {
       "main": [
         [
           {
-            "node": "Gửi Ảnh Thứ 2",
+            "node": "Gửi Ảnh Phụ 1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gửi Ảnh Thứ 2": {
+    "Gửi Ảnh Phụ 1": {
       "main": [
         [
           {
-            "node": "Kiểm Tra Còn Ảnh Thứ 3?",
+            "node": "Kiểm Tra Có Ảnh Phụ 2?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Kiểm Tra Còn Ảnh Thứ 3?": {
+    "Kiểm Tra Có Ảnh Phụ 2?": {
       "main": [
         [
           {
-            "node": "Tải Ảnh Thứ 3",
+            "node": "Tải Ảnh Phụ 2",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Kiểm Tra Có Tin Nhắn Kèm Theo?",
+            "node": "Tải Ảnh Chính Hoặc Tệp",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Tải Ảnh Thứ 3": {
+    "Tải Ảnh Phụ 2": {
       "main": [
         [
           {
-            "node": "Gửi Ảnh Thứ 3",
+            "node": "Gửi Ảnh Phụ 2",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gửi Ảnh Thứ 3": {
+    "Gửi Ảnh Phụ 2": {
       "main": [
         [
           {
-            "node": "Kiểm Tra Còn Ảnh Thứ 4?",
+            "node": "Kiểm Tra Có Ảnh Phụ 3?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Kiểm Tra Còn Ảnh Thứ 4?": {
+    "Kiểm Tra Có Ảnh Phụ 3?": {
       "main": [
         [
           {
-            "node": "Tải Ảnh Thứ 4",
+            "node": "Tải Ảnh Phụ 3",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Kiểm Tra Có Tin Nhắn Kèm Theo?",
+            "node": "Tải Ảnh Chính Hoặc Tệp",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Tải Ảnh Thứ 4": {
+    "Tải Ảnh Phụ 3": {
       "main": [
         [
           {
-            "node": "Gửi Ảnh Thứ 4",
+            "node": "Gửi Ảnh Phụ 3",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gửi Ảnh Thứ 4": {
+    "Gửi Ảnh Phụ 3": {
       "main": [
         [
           {
-            "node": "Kiểm Tra Còn Ảnh Thứ 5?",
+            "node": "Kiểm Tra Có Ảnh Phụ 4?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Kiểm Tra Còn Ảnh Thứ 5?": {
+    "Kiểm Tra Có Ảnh Phụ 4?": {
       "main": [
         [
           {
-            "node": "Tải Ảnh Thứ 5",
+            "node": "Tải Ảnh Phụ 4",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Kiểm Tra Có Tin Nhắn Kèm Theo?",
+            "node": "Tải Ảnh Chính Hoặc Tệp",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Tải Ảnh Thứ 5": {
+    "Tải Ảnh Phụ 4": {
       "main": [
         [
           {
-            "node": "Gửi Ảnh Thứ 5",
+            "node": "Gửi Ảnh Phụ 4",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gửi Ảnh Thứ 5": {
+    "Gửi Ảnh Phụ 4": {
       "main": [
         [
           {
-            "node": "Kiểm Tra Có Tin Nhắn Kèm Theo?",
+            "node": "Tải Ảnh Chính Hoặc Tệp",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Kiểm Tra Có Tin Nhắn Kèm Theo?": {
+    "Tải Ảnh Chính Hoặc Tệp": {
       "main": [
         [
           {
-            "node": "Gửi Tin Nhắn Kèm Theo Ảnh",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Giãn Cách Chống Spam",
+            "node": "Gửi Ảnh Chính Kèm Chú Thích Tin Nhắn",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gửi Tin Nhắn Kèm Theo Ảnh": {
+    "Gửi Ảnh Chính Kèm Chú Thích Tin Nhắn": {
       "main": [
         [
           {

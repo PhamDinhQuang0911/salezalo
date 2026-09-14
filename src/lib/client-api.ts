@@ -174,6 +174,10 @@ export async function clientSaveCampaign(id: string | null, data: any) {
     ? data.image_urls.filter((u: any) => typeof u === "string" && u.trim().length > 0)
     : (data.image_url ? [data.image_url.trim()] : []);
 
+  const primaryImageUrl = (typeof data.image_url === "string" && data.image_url.trim() && imageUrls.includes(data.image_url.trim()))
+    ? data.image_url.trim()
+    : (imageUrls[0] || data.image_url?.trim() || "");
+
   const ctaLinks: any[] = Array.isArray(data.cta_links)
     ? data.cta_links.filter((l: any) => l && (l.url?.trim() || l.label?.trim())).map((l: any) => ({
         id: l.id || `cta-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -193,11 +197,11 @@ export async function clientSaveCampaign(id: string | null, data: any) {
     cooldown_days: data.cooldown_days !== undefined && !isNaN(parseInt(data.cooldown_days)) ? parseInt(data.cooldown_days) : 0,
     auto_friend_first: data.auto_friend_first ? 1 : 0,
     delay_seconds: parseInt(data.delay_seconds) || 15,
-    image_url: imageUrls[0] || data.image_url?.trim() || "",
+    image_url: primaryImageUrl,
     image_urls: imageUrls,
     video_url: data.video_url?.trim() || "",
     document_url: data.document_url?.trim() || "",
-    media_url: data.media_url?.trim() || imageUrls[0] || "",
+    media_url: data.media_url?.trim() || primaryImageUrl || "",
     media_type: data.media_type?.trim() || (imageUrls.length > 0 ? "image" : "none"),
     file_name: data.file_name?.trim() || "",
     cta_link: ctaLinks[0]?.url || data.cta_link?.trim() || "",
@@ -482,10 +486,17 @@ export async function clientTriggerSendCampaign(campaignId: string) {
     }
   }
 
-  const mediaUrl = campaign.media_url || campaign.document_url || campaign.image_url || campaign.video_url || (imageUrls[0] || "");
+  const primaryImageUrl = (typeof campaign.image_url === "string" && campaign.image_url.trim() && imageUrls.includes(campaign.image_url.trim()))
+    ? campaign.image_url.trim()
+    : (imageUrls[0] || campaign.image_url || "");
+
+  const primaryIndex = imageUrls.indexOf(primaryImageUrl) >= 0 ? imageUrls.indexOf(primaryImageUrl) : 0;
+  const auxiliaryImageUrls = imageUrls.filter((_, idx) => idx !== primaryIndex);
+
+  const mediaUrl = campaign.media_url || campaign.document_url || primaryImageUrl || campaign.video_url || (imageUrls[0] || "");
   const isVideo = campaign.media_type === "video" || Boolean(campaign.video_url);
   const isDoc = campaign.media_type === "document" || Boolean(campaign.document_url);
-  const isImage = (campaign.media_type === "image" || Boolean(campaign.image_url) || imageUrls.length > 0) && !isVideo && !isDoc;
+  const isImage = (campaign.media_type === "image" || Boolean(primaryImageUrl) || imageUrls.length > 0) && !isVideo && !isDoc;
   const mediaType = isVideo ? "video" : isDoc ? "document" : isImage ? "image" : "none";
 
   const payload = {
@@ -498,9 +509,12 @@ export async function clientTriggerSendCampaign(campaignId: string) {
       mediaType: mediaType,
       mediaUrl: mediaUrl,
       fileName: campaign.file_name || "",
-      imageUrl: isImage ? (imageUrls[0] || mediaUrl) : (campaign.image_url || ""),
+      imageUrl: primaryImageUrl || (imageUrls[0] || mediaUrl),
+      primaryImageUrl: primaryImageUrl,
+      primaryImageIndex: primaryIndex,
       imageUrls: imageUrls,
       images: imageUrls,
+      auxiliaryImageUrls: auxiliaryImageUrls,
       videoUrl: isVideo ? mediaUrl : (campaign.video_url || ""),
       documentUrl: isDoc ? mediaUrl : "",
       ctaLink: "", // Để trống để n8n cũ không tự cộng thêm dòng "👉 Xem thêm tại: ..." gây trùng lặp

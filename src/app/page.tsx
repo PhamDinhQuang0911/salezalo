@@ -1067,11 +1067,14 @@ export default function Home() {
 
         setCampaignForm((prev) => {
           const updatedImages = [...(prev.image_urls || []), ...successfulUrls];
+          const primaryImg = (prev.image_url && updatedImages.includes(prev.image_url))
+            ? prev.image_url
+            : (updatedImages[0] || "");
           return {
             ...prev,
             image_urls: updatedImages,
-            image_url: updatedImages[0] || "",
-            media_url: updatedImages[0] || "",
+            image_url: primaryImg,
+            media_url: primaryImg,
             media_type: "image",
             video_url: "",
             document_url: "",
@@ -1102,11 +1105,14 @@ export default function Home() {
     }
     setCampaignForm((prev) => {
       const updated = [...(prev.image_urls || []), trimmed];
+      const primaryImg = (prev.image_url && updated.includes(prev.image_url))
+        ? prev.image_url
+        : (updated[0] || "");
       return {
         ...prev,
         image_urls: updated,
-        image_url: updated[0] || "",
-        media_url: updated[0] || "",
+        image_url: primaryImg,
+        media_url: primaryImg,
         media_type: "image",
         video_url: "",
         document_url: "",
@@ -1116,14 +1122,24 @@ export default function Home() {
     setMediaUploadError("");
   };
 
+  const handleSetPrimaryImage = (url: string) => {
+    setCampaignForm((prev) => ({
+      ...prev,
+      image_url: url,
+      media_url: url,
+    }));
+  };
+
   const handleRemoveSingleImage = (indexToRemove: number) => {
     setCampaignForm((prev) => {
+      const removedUrl = (prev.image_urls || [])[indexToRemove];
       const updated = (prev.image_urls || []).filter((_, idx) => idx !== indexToRemove);
+      const primaryImg = prev.image_url === removedUrl ? (updated[0] || "") : prev.image_url;
       return {
         ...prev,
         image_urls: updated,
-        image_url: updated[0] || "",
-        media_url: updated[0] || "",
+        image_url: primaryImg,
+        media_url: primaryImg,
         media_type: updated.length > 0 ? "image" : "none",
       };
     });
@@ -1365,11 +1381,11 @@ export default function Home() {
       cooldown_days: c.cooldown_days !== undefined ? Number(c.cooldown_days) : 0,
       auto_friend_first: c.auto_friend_first || 0,
       delay_seconds: c.delay_seconds || 15,
-      image_url: rawImageUrls[0] || c.image_url || "",
+      image_url: (c.image_url && rawImageUrls.includes(c.image_url)) ? c.image_url : (rawImageUrls[0] || c.image_url || ""),
       image_urls: rawImageUrls,
       video_url: c.video_url || "",
       document_url: c.document_url || "",
-      media_url: c.media_url || (rawImageUrls[0] || ""),
+      media_url: (c.image_url && rawImageUrls.includes(c.image_url)) ? c.image_url : (c.media_url || (rawImageUrls[0] || "")),
       media_type: c.media_type || (rawImageUrls.length > 0 ? "image" : "none"),
       file_name: c.file_name || "",
       cta_link: rawCtaLinks[0]?.url || c.cta_link || "",
@@ -4120,9 +4136,14 @@ export default function Home() {
 
                       {/* Image Thumbnails Gallery */}
                       {(campaignForm.image_urls || []).length > 0 && (
-                        <div className="pt-1 space-y-1.5">
+                        <div className="pt-1 space-y-2">
                           <div className="flex items-center justify-between text-[11px] text-slate-400">
-                            <span className="font-medium text-slate-300">Danh sách {(campaignForm.image_urls || []).length} ảnh gửi kèm:</span>
+                            <span className="font-medium text-slate-300 flex items-center gap-1.5">
+                              <span>Danh sách {(campaignForm.image_urls || []).length} ảnh:</span>
+                              <span className="text-[10px] text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                ⭐ Đã chọn 1 ảnh chính
+                              </span>
+                            </span>
                             <button
                               type="button"
                               onClick={handleClearAllImages}
@@ -4131,34 +4152,73 @@ export default function Home() {
                               Xóa tất cả
                             </button>
                           </div>
-                          <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto pr-1">
-                            {(campaignForm.image_urls || []).map((url, idx) => (
-                              <div key={idx} className="relative group rounded-lg overflow-hidden border border-slate-750 bg-slate-900 aspect-square">
-                                <img
-                                  src={imagePreviewMap[url] || url}
-                                  alt={`img-${idx}`}
-                                  className="w-full h-full object-cover"
-                                  onError={(e: any) => {
-                                    if (e.target.src !== url && url.startsWith("http")) {
-                                      e.target.src = url;
-                                    } else {
-                                      e.target.src = "https://placehold.co/100x100?text=Ảnh+" + (idx + 1);
-                                    }
-                                  }}
-                                />
-                                <span className="absolute bottom-0.5 left-0.5 bg-black/80 text-[9px] font-mono px-1 rounded text-white">
-                                  #{idx + 1}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveSingleImage(idx)}
-                                  className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-600/90 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition cursor-pointer shadow-sm"
-                                  title="Xóa ảnh này"
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-44 overflow-y-auto pr-1">
+                            {(campaignForm.image_urls || []).map((url, idx) => {
+                              const isPrimary = (campaignForm.image_url ? campaignForm.image_url === url : idx === 0);
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={() => handleSetPrimaryImage(url)}
+                                  className={`relative group rounded-xl overflow-hidden aspect-square cursor-pointer transition-all duration-200 border-2 ${
+                                    isPrimary
+                                      ? "border-amber-400 ring-2 ring-amber-400/40 shadow-lg shadow-amber-500/20 bg-amber-950/30"
+                                      : "border-slate-750 hover:border-slate-500 bg-slate-900 opacity-85 hover:opacity-100"
+                                  }`}
+                                  title={isPrimary ? "Đây là Ảnh chính (gắn liền với chú thích tin nhắn)" : "Click để đặt ảnh này làm Ảnh chính"}
                                 >
-                                  ✕
-                                </button>
-                              </div>
-                            ))}
+                                  <img
+                                    src={imagePreviewMap[url] || url}
+                                    alt={`img-${idx}`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e: any) => {
+                                      if (e.target.src !== url && url.startsWith("http")) {
+                                        e.target.src = url;
+                                      } else {
+                                        e.target.src = "https://placehold.co/100x100?text=Ảnh+" + (idx + 1);
+                                      }
+                                    }}
+                                  />
+                                  {/* Badge trạng thái */}
+                                  <div className="absolute top-1 left-1 pointer-events-none">
+                                    {isPrimary ? (
+                                      <span className="bg-amber-500 text-slate-950 font-bold px-1.5 py-0.5 rounded text-[9px] flex items-center gap-0.5 shadow-md">
+                                        ⭐ Ảnh chính
+                                      </span>
+                                    ) : (
+                                      <span className="bg-black/75 text-slate-300 px-1.5 py-0.5 rounded text-[9px] font-mono">
+                                        #{idx + 1}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Nút đặt làm ảnh chính khi hover nếu chưa phải là ảnh chính */}
+                                  {!isPrimary && (
+                                    <div className="absolute inset-x-0 bottom-0 p-1 bg-gradient-to-t from-black/90 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition flex justify-center pointer-events-none">
+                                      <span className="bg-amber-500 text-slate-950 font-bold px-1.5 py-0.5 rounded text-[9px] shadow-sm">
+                                        Đặt làm ảnh chính
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Nút xóa */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveSingleImage(idx);
+                                    }}
+                                    className="absolute top-1 right-1 w-4 h-4 bg-red-600/90 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition cursor-pointer shadow-sm z-10"
+                                    title="Xóa ảnh này"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="text-[11px] text-amber-300/90 flex items-start gap-1.5 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20">
+                            <span className="shrink-0 mt-0.5">💡</span>
+                            <span>Ảnh gắn nhãn <strong>"⭐ Ảnh chính"</strong> sẽ gửi kèm toàn bộ văn bản chú thích (caption). Các ảnh phụ khác sẽ được gửi ở trên. Click vào ảnh bất kỳ để đổi ảnh chính.</span>
                           </div>
                         </div>
                       )}
@@ -4622,104 +4682,140 @@ export default function Home() {
                       <span className="text-[10px] text-emerald-400 font-mono">● Mô phỏng Zalo</span>
                     </label>
                     <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-xs space-y-2.5 max-h-[340px] overflow-y-auto shadow-inner">
-                      {/* Images Preview: Single or Multi-image Album Grid */}
-                      {((campaignForm.image_urls || []).length > 0 || campaignForm.image_url) && (
-                        <div>
-                          {(campaignForm.image_urls || []).length > 1 ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-[10px] text-cyan-400 font-semibold px-0.5">
-                                <span>📸 Album Zalo: {(campaignForm.image_urls || []).length} ảnh</span>
-                              </div>
-                              <div className={`grid gap-1 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 ${(campaignForm.image_urls || []).length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-                                {(campaignForm.image_urls || []).map((imgUrl, i) => (
-                                  <div key={i} className="aspect-square relative overflow-hidden bg-slate-950">
-                                    <img
-                                      src={imagePreviewMap[imgUrl] || imgUrl}
-                                      alt={`preview-${i}`}
-                                      className="w-full h-full object-cover"
-                                      onError={(e: any) => {
-                                        if (e.target.src !== imgUrl && imgUrl.startsWith("http")) {
-                                          e.target.src = imgUrl;
-                                        } else {
-                                          e.target.style.display = 'none';
-                                        }
-                                      }}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
-                              <img
-                                src={
-                                  (campaignForm.image_urls && campaignForm.image_urls[0] && (imagePreviewMap[campaignForm.image_urls[0]] || campaignForm.image_urls[0])) ||
-                                  uploadedMediaInfo?.previewUrl ||
-                                  campaignForm.image_url
-                                }
-                                alt="Preview"
-                                className="w-full h-36 object-cover"
-                                onError={(e: any) => { e.target.style.display = 'none'; }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {campaignForm.video_url && (
-                        <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
-                          <video
-                            src={uploadedMediaInfo?.previewUrl || campaignForm.video_url}
-                            controls
-                            className="w-full max-h-36 object-contain bg-black"
-                          />
-                        </div>
-                      )}
-                      {campaignForm.document_url && (
-                        <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 flex items-center gap-3 text-amber-300">
-                          <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
-                            <FileText className="w-5 h-5 text-amber-400" />
-                          </div>
-                          <div className="truncate flex-1">
-                            <div className="font-semibold text-xs text-amber-200 truncate">
-                              {uploadedMediaInfo?.name || campaignForm.file_name || "Tài liệu đính kèm"}
-                            </div>
-                            <div className="text-[10px] text-amber-400/80">Tệp đính kèm Zalo (PDF / Word)</div>
-                          </div>
-                        </div>
-                      )}
-                      <div className="text-slate-200 whitespace-pre-line leading-relaxed">
-                        {campaignForm.message_template
-                          ? campaignForm.message_template.replace("{name}", "Thanh Loan")
-                          : "(Nội dung tin nhắn sẽ hiển thị tại đây...)"}
-                      </div>
+                      {/* Live Preview Content matching Zalo (Image 2 style) */}
+                      {(() => {
+                        const allImgs = campaignForm.image_urls || [];
+                        const primaryImg = (campaignForm.image_url && allImgs.includes(campaignForm.image_url))
+                          ? campaignForm.image_url
+                          : (allImgs[0] || campaignForm.image_url || "");
+                        const auxImgs = allImgs.filter((u) => u !== primaryImg);
 
-                      {/* Action CTA Buttons in Preview */}
-                      {((campaignForm.cta_links || []).length > 0 || campaignForm.cta_link) && (
-                        <div className="pt-2 space-y-1.5 border-t border-slate-800/80">
-                          <div className="text-[10px] text-slate-400 font-medium">Nút bấm tương tác:</div>
-                          {(campaignForm.cta_links || []).length > 0 ? (
-                            <div className="space-y-1.5">
-                              {(campaignForm.cta_links || []).filter((l) => l.label || l.url).map((link, idx) => (
-                                <a
-                                  key={link.id || idx}
-                                  href={link.url || "#"}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 hover:text-blue-200 text-xs font-semibold shadow-xs transition group"
-                                >
-                                  <span className="truncate">{link.label || "Xem chi tiết"}</span>
-                                  <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1.5 group-hover:translate-x-0.5 transition-transform" />
-                                </a>
-                              ))}
+                        return (
+                          <div className="space-y-3">
+                            {/* 1. Các ảnh phụ gửi trước (nếu có 2+ ảnh) */}
+                            {auxImgs.length > 0 && (
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold px-0.5">
+                                  <span>📸 {auxImgs.length} ảnh phụ (gửi trước không kèm chú thích):</span>
+                                </div>
+                                <div className={`grid gap-1 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 ${auxImgs.length === 1 ? "grid-cols-1 max-h-36" : auxImgs.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                                  {auxImgs.map((imgUrl, i) => (
+                                    <div key={i} className="aspect-square relative overflow-hidden bg-slate-950">
+                                      <img
+                                        src={imagePreviewMap[imgUrl] || imgUrl}
+                                        alt={`aux-preview-${i}`}
+                                        className="w-full h-full object-cover"
+                                        onError={(e: any) => {
+                                          if (e.target.src !== imgUrl && imgUrl.startsWith("http")) {
+                                            e.target.src = imgUrl;
+                                          } else {
+                                            e.target.style.display = 'none';
+                                          }
+                                        }}
+                                      />
+                                      <span className="absolute bottom-1 left-1 bg-black/80 text-[9px] font-mono px-1 rounded text-slate-300">
+                                        Ảnh phụ #{i + 1}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 2. Video nhẹ (nếu có) */}
+                            {campaignForm.video_url && (
+                              <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-36">
+                                <video
+                                  src={uploadedMediaInfo?.previewUrl || campaignForm.video_url}
+                                  controls
+                                  className="w-full max-h-36 object-contain bg-black"
+                                />
+                              </div>
+                            )}
+
+                            {/* 3. Tệp đính kèm Document (nếu có) */}
+                            {campaignForm.document_url && (
+                              <div className="rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 flex items-center gap-3 text-amber-300">
+                                <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                                  <FileText className="w-5 h-5 text-amber-400" />
+                                </div>
+                                <div className="truncate flex-1">
+                                  <div className="font-semibold text-xs text-amber-200 truncate">
+                                    {uploadedMediaInfo?.name || campaignForm.file_name || "Tài liệu đính kèm"}
+                                  </div>
+                                  <div className="text-[10px] text-amber-400/80">Tệp đính kèm Zalo (PDF / Word)</div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 4. KHỐI TIN NHẮN CHÍNH GẮN VỚI ẢNH CHÍNH (CHUẨN ZALO HÌNH 2) */}
+                            <div className="rounded-xl overflow-hidden border border-slate-700/80 bg-slate-900 shadow-md">
+                              {/* Ảnh chính */}
+                              {primaryImg && (
+                                <div className="relative border-b border-slate-800/80">
+                                  <img
+                                    src={
+                                      imagePreviewMap[primaryImg] ||
+                                      primaryImg ||
+                                      uploadedMediaInfo?.previewUrl ||
+                                      campaignForm.image_url
+                                    }
+                                    alt="Ảnh chính"
+                                    className="w-full max-h-52 object-cover"
+                                    onError={(e: any) => {
+                                      if (e.target.src !== primaryImg && primaryImg.startsWith("http")) {
+                                        e.target.src = primaryImg;
+                                      } else {
+                                        e.target.style.display = 'none';
+                                      }
+                                    }}
+                                  />
+                                  <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-500 text-slate-950 font-bold px-2 py-0.5 rounded text-[10px] shadow-md">
+                                    <span>⭐ Ảnh chính gắn kèm chú thích</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Chú thích tin nhắn bên dưới ảnh chính */}
+                              <div className="p-3 space-y-2.5">
+                                <div className="text-slate-200 whitespace-pre-line leading-relaxed text-xs">
+                                  {campaignForm.message_template
+                                    ? campaignForm.message_template.replace("{name}", "Thanh Loan")
+                                    : "(Nội dung tin nhắn sẽ hiển thị tại đây...)"}
+                                </div>
+
+                                {/* Action CTA Buttons in Preview */}
+                                {((campaignForm.cta_links || []).length > 0 || campaignForm.cta_link) && (
+                                  <div className="pt-2 space-y-1.5 border-t border-slate-800/80">
+                                    <div className="text-[10px] text-slate-400 font-medium">Nút bấm tương tác:</div>
+                                    {(campaignForm.cta_links || []).length > 0 ? (
+                                      <div className="space-y-1.5">
+                                        {(campaignForm.cta_links || []).filter((l) => l.label || l.url).map((link, idx) => (
+                                          <a
+                                            key={link.id || idx}
+                                            href={link.url || "#"}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 hover:text-blue-200 text-xs font-semibold shadow-xs transition group"
+                                          >
+                                            <span className="truncate">{link.label || "Xem chi tiết"}</span>
+                                            <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1.5 group-hover:translate-x-0.5 transition-transform" />
+                                          </a>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-600/15 border border-blue-500/30 text-blue-300 text-xs font-semibold">
+                                        <span className="truncate">{campaignForm.cta_link}</span>
+                                        <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1.5" />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          ) : (
-                            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-600/15 border border-blue-500/30 text-blue-300 text-xs font-semibold">
-                              <span className="truncate">{campaignForm.cta_link}</span>
-                              <ExternalLink className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-1.5" />
-                            </div>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
