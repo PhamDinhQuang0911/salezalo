@@ -255,7 +255,7 @@ export default function Home() {
   const [autoFriendPreviewMembers, setAutoFriendPreviewMembers] = useState<any[]>([]);
   const [isLoadingAutoFriendPreview, setIsLoadingAutoFriendPreview] = useState<boolean>(false);
   const [autoFriendAvailableCount, setAutoFriendAvailableCount] = useState<number>(0);
-  const [autoFriendSentFilter, setAutoFriendSentFilter] = useState<string>("all");
+  const [autoFriendSentFilter, setAutoFriendSentFilter] = useState<string>("unsent");
   const [autoFriendSearch, setAutoFriendSearch] = useState<string>("");
   const [autoFriendSelectedIds, setAutoFriendSelectedIds] = useState<string[]>([]);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState<boolean>(false);
@@ -2698,7 +2698,7 @@ export default function Home() {
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-slate-400 font-medium">Chưa kết bạn (Sẵn sàng gửi)</p>
+                  <p className="text-xs text-slate-400 font-medium">Chưa kết bạn (Chưa gửi)</p>
                   <p className="text-xl font-bold text-pink-400 mt-1">{autoFriendAvailableCount}</p>
                   <p className="text-[11px] text-slate-500 mt-0.5">Trong tệp đang chọn</p>
                 </div>
@@ -2829,7 +2829,7 @@ export default function Home() {
                   })()}
 
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Chỉ lọc những thành viên chưa kết bạn (loại bỏ Admin và người đã gửi).
+                    Chỉ lọc những thành viên chưa kết bạn (tự động loại bỏ Admin và người đã gửi rồi).
                   </p>
                 </div>
 
@@ -2842,14 +2842,14 @@ export default function Home() {
                   <select
                     value={autoFriendSentFilter}
                     onChange={(e) => setAutoFriendSentFilter(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-pink-500 font-medium"
                   >
-                    <option value="all">🌐 Tất cả thành viên chưa kết bạn</option>
-                    <option value="unsent">✉️ Khách hàng mới (Chưa từng gửi tin tiếp thị)</option>
-                    <option value="sent">💬 Khách hàng đã tiếp cận (Đã từng gửi tin tiếp thị)</option>
+                    <option value="unsent">🛡️ Chưa gửi (Mặc định - Loại bỏ người đã gửi rồi)</option>
+                    <option value="sent">💬 Đã từng gửi (Chỉ gửi cho người đã tiếp cận)</option>
+                    <option value="all">🌐 Tất cả (Bao gồm cả người chưa gửi & đã gửi)</option>
                   </select>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Chọn gửi kết bạn cho khách mới hoặc chăm sóc khách cũ.
+                    Hệ thống mặc định loại bỏ tất cả người đã gửi tin hoặc đã gửi kết bạn trước đó.
                   </p>
                 </div>
 
@@ -3094,11 +3094,21 @@ export default function Home() {
                     <span>Đối Tượng Sẽ Gửi Lời Mời ({autoFriendPreviewMembers.length} thành viên)</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Hệ thống tự động lọc chỉ lấy thành viên chưa kết bạn (➕) và không phải Admin nhóm.
+                    Hệ thống tự động lọc: Chỉ lấy thành viên chưa kết bạn (➕), loại bỏ Admin và người đã gửi rồi.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-300 bg-slate-800/80 hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-700/80 cursor-pointer transition select-none" title="Bật/Tắt chế độ loại bỏ những người đã từng gửi tin hoặc gửi kết bạn">
+                    <input
+                      type="checkbox"
+                      checked={autoFriendSentFilter === "unsent"}
+                      onChange={(e) => setAutoFriendSentFilter(e.target.checked ? "unsent" : "all")}
+                      className="rounded border-slate-700 text-pink-600 focus:ring-pink-500 w-3.5 h-3.5 cursor-pointer accent-pink-600"
+                    />
+                    <span className="font-medium text-[11px] text-pink-300">Loại người đã gửi</span>
+                  </label>
+
                   {autoFriendPreviewMembers.length > 0 && (
                     <button
                       type="button"

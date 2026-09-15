@@ -548,10 +548,14 @@ export async function clientTriggerSendCampaign(campaignId: string) {
   });
 
   for (const r of recipients) {
-    await updateMember(r.zalo_id, {
+    const updateData: any = {
       campaign_sent_count: (r.campaign_sent_count || 0) + 1,
       last_campaign_sent_at: new Date().toISOString(),
-    });
+    };
+    if (campaign.auto_friend_first && (!r.is_friend || r.is_friend === 0)) {
+      updateData.is_friend = 2;
+    }
+    await updateMember(r.zalo_id, updateData);
   }
 
   return {
@@ -850,6 +854,7 @@ export async function clientTriggerSendFriendRequests(params: {
     const { members: allCandidates } = await getMembers({
       friendStatus: "not_friend",
       role: "member",
+      sentStatus: params.sentStatus && params.sentStatus !== "all" ? (params.sentStatus as any) : undefined,
       limit: 1000,
     });
     const selectedSet = new Set(params.specificMemberIds.map(String));
